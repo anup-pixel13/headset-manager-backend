@@ -355,6 +355,16 @@ const getActiveAssignmentForAgent = async (conn, agentId) => {
   return rows?.[0] || null;
 };
 
+// Helper: compute released old headset status for v2 when headset changes
+const computeOldHeadsetReleaseStatus = ({ oldReceived, oldReturnCondition }) => {
+  if (!oldReceived) return 'lost';
+  const c = String(oldReturnCondition || '').trim().toLowerCase();
+  if (c === 'damaged') return 'repair';
+  if (c === 'fair' || c === 'good') return 'available';
+  // fallback: treat unknown as repair-safe
+  return 'repair';
+};
+
 // ============================================
 // PROCESS CHANGE v2 (Option 2 + two-row deposits + negative allowed)
 // Endpoint: POST /api/transfers/process-change-v2
@@ -371,14 +381,12 @@ export const processChangeV2 = async (req, res) => {
       receipt_number,
       notes,
 
-	  old_headset_received = true,
-	  old_return_condition,	  
-	  
+      old_headset_received = true,
+      old_return_condition,
+
       tl_name,
       manager_name,
     } = req.body;
-	
-	
 
     if (!agent_id || !to_process_id) {
       return res.status(400).json(errorResponse('agent_id and to_process_id are required'));
@@ -394,24 +402,26 @@ export const processChangeV2 = async (req, res) => {
     if (!finalTlName || !finalManagerName) {
       return res.status(400).json(errorResponse('tl_name and manager_name are required for the new assignment'));
     }
-	const validConditions = ['good', 'fair', 'damaged', 'lost'];
 
-	const oldReceived = old_headset_received === true || old_headset_received === 'true' || old_headset_received === 1 || old_headset_received === '1';
+    const validConditions = ['good', 'fair', 'damaged', 'lost'];
 
-	let finalOldReturnCondition = old_return_condition ? String(old_return_condition).trim().toLowerCase() : '';
+    const oldReceived = old_headset_received === true || old_headset_received === 'true' || old_headset_received === 1 || old_headset_received === '1';
 
-	if (!oldReceived) {
-	  finalOldReturnCondition = 'lost';
-	} else {
-	  if (!finalOldReturnCondition) {
-	    return res.status(400).json(errorResponse('old_return_condition is required when old_headset_received is true'));
-	  }
-	  if (!validConditions.includes(finalOldReturnCondition)) {
-	    return res
-	      .status(400)
-	      .json(errorResponse(`Invalid old_return_condition. Must be one of: ${validConditions.join(', ')}`));
-	  }
-	}
+    let finalOldReturnCondition = old_return_condition ? String(old_return_condition).trim().toLowerCase() : '';
+
+    if (!oldReceived) {
+      finalOldReturnCondition = 'lost';
+    } else {
+      if (!finalOldReturnCondition) {
+        return res.status(400).json(errorResponse('old_return_condition is required when old_headset_received is true'));
+      }
+      if (!validConditions.includes(finalOldReturnCondition)) {
+        return res
+          .status(400)
+          .json(errorResponse(`Invalid old_return_condition. Must be one of: ${validConditions.join(', ')}`));
+      }
+    }
+
     const connection = await db.getConnection();
     await connection.beginTransaction();
 
@@ -443,6 +453,12 @@ export const processChangeV2 = async (req, res) => {
         return res.status(404).json(errorResponse('Target process not found'));
       }
       const toProcess = toProcessRows[0];
+
+      // ✅ IMPORTANT: keep agent.process_id in sync so Agents page shows latest process
+      await connection.query(
+        'UPDATE agents SET process_id = ?, updated_at = NOW() WHERE id = ?',
+        [to_process_id, agent_id]
+      );
 
       // Current active assignment
       const current = await getActiveAssignmentForAgent(connection, agent_id);
@@ -501,20 +517,20 @@ export const processChangeV2 = async (req, res) => {
 
       const newHeadset = newHeadsetRows[0];
       const changingHeadset = Number(effectiveNewHeadsetId) !== Number(oldHeadsetId);
-	  
-	  // ✅ BLOCK: do not allow assigning a headset that is reserved as an original headset
-	  // for an active temp replacement chain.
-	  const lock = await getHeadsetReservationLock(connection, effectiveNewHeadsetId);
-	  if (lock.reserved) {
-	    await connection.rollback();
-	    connection.release();
-	    return res.status(400).json(
-	      errorResponse(
-	        `Headset ${newHeadset.headset_number} is reserved (original headset for an active temp replacement). ` +
-	        `Original Assignment #${lock.originalAssignmentId}, Temp Assignment #${lock.tempAssignmentId}.`
-	      )
-	    );
-	  }
+
+      // ✅ BLOCK: do not allow assigning a headset that is reserved as an original headset
+      // for an active temp replacement chain.
+      const lock = await getHeadsetReservationLock(connection, effectiveNewHeadsetId);
+      if (lock.reserved) {
+        await connection.rollback();
+        connection.release();
+        return res.status(400).json(
+          errorResponse(
+            `Headset ${newHeadset.headset_number} is reserved (original headset for an active temp replacement). ` +
+            `Original Assignment #${lock.originalAssignmentId}, Temp Assignment #${lock.tempAssignmentId}.`
+          )
+        );
+      }
 
       if (changingHeadset && newHeadset.status !== 'available') {
         await connection.rollback();
@@ -556,42 +572,33 @@ export const processChangeV2 = async (req, res) => {
       const adjustmentFee = Number(baseDepositAmount) - Number(oldDepositAmount); // negative allowed
 
       // Invalidate old assignment
-	  await connection.query(
-	    `UPDATE headset_assignments
-	     SET is_active = 0,
-	         return_date = NOW(),
-	         return_condition = ?,
-	         notes = CONCAT(IFNULL(notes, ''), ?),
-	         updated_at = NOW()
-	     WHERE id = ?`,
-	    [
-	      finalOldReturnCondition,
-	      ` | Invalidated: process change to "${toProcess.name}"` +
-	        (changingHeadset ? `, headset replaced to ${newHeadset.headset_number}` : '') +
-	        (!oldReceived ? ' (Old headset not received)' : ''),
-	      fromAssignmentId,
-	    ]
-	  );
+      await connection.query(
+        `UPDATE headset_assignments
+         SET is_active = 0,
+             return_date = NOW(),
+             return_condition = ?,
+             notes = CONCAT(IFNULL(notes, ''), ?),
+             updated_at = NOW()
+         WHERE id = ?`,
+        [
+          finalOldReturnCondition,
+          ` | Invalidated: process change to "${toProcess.name}"` +
+            (changingHeadset ? `, headset replaced to ${newHeadset.headset_number}` : '') +
+            (!oldReceived ? ' (Old headset not received)' : ''),
+          fromAssignmentId,
+        ]
+      );
 
       // Headset status updates
       if (changingHeadset) {
-/*		await connection.query(
-		  `UPDATE headset_assignments
-		   SET is_active = 0,
-		       return_date = NOW(),
-		       return_condition = ?,
-		       notes = CONCAT(IFNULL(notes, ''), ?),
-		       updated_at = NOW()
-		   WHERE id = ?`,
-		  [
-		    finalOldReturnCondition,
-		    ` | Invalidated: process change to "${toProcess.name}"` +
-		      (changingHeadset ? `, headset replaced to ${newHeadset.headset_number}` : '') +
-		      (!oldReceived ? ' (Old headset not received)' : ''),
-		    fromAssignmentId,
-		  ]
-		);*/
+        // ✅ release old headset back to pool (or repair/lost)
+        const oldStatus = computeOldHeadsetReleaseStatus({ oldReceived, oldReturnCondition: finalOldReturnCondition });
+        await connection.query(
+          'UPDATE headsets SET status = ?, updated_at = NOW() WHERE id = ?',
+          [oldStatus, oldHeadsetId]
+        );
 
+        // assign new headset
         await connection.query(
           'UPDATE headsets SET status = ?, is_brand_new = FALSE, updated_at = NOW() WHERE id = ?',
           ['assigned', effectiveNewHeadsetId]
@@ -835,6 +842,7 @@ export const processChangeV2 = async (req, res) => {
     return res.status(500).json(errorResponse('Failed to process change (v2)'));
   }
 };
+
 // ============================================
 // Existing Process Change (legacy) - kept as-is
 // ============================================
@@ -920,6 +928,12 @@ export const processChange = async (req, res) => {
     await connection.beginTransaction();
 
     try {
+      // ✅ IMPORTANT: keep agent.process_id in sync so Agents page shows latest process
+      await connection.query(
+        'UPDATE agents SET process_id = ?, updated_at = NOW() WHERE id = ?',
+        [to_process_id, agent_id]
+      );
+
       await connection.query(
         `UPDATE headset_assignments 
          SET is_active = FALSE, return_date = NOW(), return_condition = 'good',

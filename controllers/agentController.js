@@ -1008,7 +1008,6 @@ export const createAgent = async (req, res) => {
     if (conn) conn.release();
   }
 };
-
 // ============================================
 // DEASSIGN + INACTIVATE AGENT (Transactional)
 // POST /api/agents/:id/deassign
@@ -1132,6 +1131,25 @@ export const deassignAgent = async (req, res) => {
       return res.status(400).json(errorResponse('Agent has no active headset assignment to de-assign'));
     }
 
+    // ✅ NEW: Determine refund basis for backend enforcement
+    // Rule: if the agent ever had ENC (voix_enc), then refund eligibility/eligible_amount should be based on ENC tier.
+    // This keeps backend consistent with the UI (refundBasis).
+    const [encRows] = await conn.query(
+      `SELECT
+         ht.refund_amount AS tier_refund_amount
+       FROM headset_assignments ha
+       JOIN headsets h ON h.id = ha.headset_id
+       LEFT JOIN headset_type_tiers ht
+         ON ht.headset_type = h.headset_type AND ht.is_active = 1
+       WHERE ha.agent_id = ?
+         AND h.headset_type = 'voix_enc'
+       ORDER BY ha.assignment_date ASC
+       LIMIT 1`,
+      [id]
+    );
+
+    const encTierRefundAmount = encRows?.[0]?.tier_refund_amount ?? null;
+
     // 3) Mark assignment inactive + return info
     await conn.query(
       `UPDATE headset_assignments
@@ -1195,8 +1213,10 @@ export const deassignAgent = async (req, res) => {
 
     // 6) Insert refund_requests row
     const refundStatus = refundEligible ? 'in_progress' : 'not_eligible';
+
+    // ✅ eligible_amount must follow the same ENC-history rule
     const eligibleAmount = refundEligible
-      ? (activeAssignment.tier_refund_amount ?? parsedRefundAmount ?? 0)
+      ? (encTierRefundAmount ?? activeAssignment.tier_refund_amount ?? parsedRefundAmount ?? 0)
       : null;
 
     const [refundRes] = await conn.query(

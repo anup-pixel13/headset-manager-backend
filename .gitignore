@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Uploads (keep structure, ignore files)
+uploads/headset-images/*
+uploads/signatures/*
+uploads/pdfs/*
+!uploads/headset-images/.gitkeep
+!uploads/signatures/.gitkeep
+!uploads/pdfs/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+dist/
+build/
+
+# Misc
+*.bak
+*.tmp

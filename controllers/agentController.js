@@ -273,6 +273,43 @@ export const getDeassignFormData = async (req, res) => {
       return res.status(400).json(errorResponse('Only agent users can be de-assigned'));
     }
 
+    // ✅ NEW: refund basis rule
+    // If an agent EVER had an ENC headset (any stage in lifecycle), refund should be 1100 and deposit paid 1750.
+    // We compute this by finding any assignment where headset_type='voix_enc'.
+    // If found, we use the earliest such assignment as the "basis".
+    const [encRows] = await db.query(
+      `SELECT
+         ha.id AS assignment_id,
+         ha.assignment_date,
+
+         h.id AS headset_id,
+         h.headset_number,
+         h.headset_type,
+
+         ht.refund_amount AS tier_refund_amount,
+         ht.deposit_amount AS tier_deposit_amount,
+
+         d.id AS deposit_id,
+         d.deposit_amount AS paid_deposit,
+         d.refund_status,
+         d.receipt_number
+       FROM headset_assignments ha
+       JOIN headsets h ON h.id = ha.headset_id
+       LEFT JOIN headset_type_tiers ht
+         ON ht.headset_type = h.headset_type AND ht.is_active = 1
+       LEFT JOIN deposits d
+         ON d.assignment_id = ha.id
+        AND d.deposit_type IN ('voix','tech')
+       WHERE ha.agent_id = ?
+         AND h.headset_type = 'voix_enc'
+       ORDER BY ha.assignment_date ASC
+       LIMIT 1`,
+      [id]
+    );
+
+    const hasEverEnc = encRows.length > 0;
+    const enc = encRows[0] || null;
+
     const data = {
       agent: {
         id: r.agent_id,
@@ -309,8 +346,36 @@ export const getDeassignFormData = async (req, res) => {
             },
           }
         : null,
+
+      // ✅ NEW: return refund basis for UI (always visible)
+      refundBasis: hasEverEnc
+        ? {
+            kind: 'ever_enc',
+            assignmentId: enc.assignment_id,
+            assignmentDate: enc.assignment_date,
+            headset: {
+              id: enc.headset_id,
+              headsetNumber: enc.headset_number,
+              headsetType: enc.headset_type,
+            },
+            deposit: enc.deposit_id
+              ? {
+                  id: enc.deposit_id,
+                  paidDeposit: enc.paid_deposit,
+                  refundStatus: enc.refund_status,
+                  receiptNumber: enc.receipt_number,
+                }
+              : null,
+            tier: {
+              depositAmount: enc.tier_deposit_amount ?? null,
+              refundAmount: enc.tier_refund_amount ?? null,
+            },
+          }
+        : null,
+
       defaults: {
-        refundAmount: r.tier_refund_amount ?? 0,
+        // If agent ever had ENC, expected refund should be the ENC tier refund.
+        refundAmount: hasEverEnc ? (enc?.tier_refund_amount ?? 1100) : (r.tier_refund_amount ?? 0),
       },
 
       // UI options
@@ -943,6 +1008,7 @@ export const createAgent = async (req, res) => {
     if (conn) conn.release();
   }
 };
+
 // ============================================
 // DEASSIGN + INACTIVATE AGENT (Transactional)
 // POST /api/agents/:id/deassign

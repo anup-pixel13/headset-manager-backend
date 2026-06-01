@@ -419,7 +419,9 @@ export const getHeadsetById = async (req, res) => {
         purchaseDate: headset.purchase_date,
         warrantyExpiry: headset.warranty_expiry,
         images: [headset.image_url_1, headset.image_url_2].filter(Boolean),
-		assignmentKind: assignments[0].assignment_kind || null,
+		// ✅ FIX: guard against no active assignment (was crashing with
+		// "Cannot read properties of undefined (reading 'assignment_kind')")
+		assignmentKind: assignments[0]?.assignment_kind ?? null,
         notes: headset.notes,
 
         // ✅ Brand is for display only

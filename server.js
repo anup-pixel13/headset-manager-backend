@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
+
+dotenv.config();
 // Load environment variables FIRST
 process.on('uncaughtException', (err) => {
   console.error('❌ uncaughtException:', err);
@@ -13,8 +15,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (err) => {
   console.error('❌ unhandledRejection:', err);
 });
-dotenv.config();
-
 // Import routes
 import authRoutes from './routes/authRoutes.js';
 import headsetRoutes from './routes/headsetRoutes.js';

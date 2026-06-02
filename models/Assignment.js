@@ -210,6 +210,9 @@ class Assignment {
     const [rows] = await db.query(
       `SELECT 
         ha.*,
+        ha.manager_name AS ha_manager_name,
+        ha.tl_name AS ha_tl_name,
+
         h.headset_number,
         h.headset_type,
         h.condition_status as headset_condition,
@@ -231,15 +234,12 @@ class Assignment {
         assigned_by.name as assigned_by_name,
         verified_by.name as verified_by_name,
         return_by.name as return_verified_by_name,
-        ha.manager_name as ha_manager_name,
-        ha.tl_name as ha_tl_name,
         mgr.name as manager_name,
         tl.name as tl_name
        FROM headset_assignments ha
        JOIN headsets h ON ha.headset_id = h.id
        JOIN headset_brands hb ON h.brand_id = hb.id
 
-       -- ✅ Tier amounts
        LEFT JOIN headset_type_tiers ht
          ON ht.headset_type = h.headset_type AND ht.is_active = 1
 

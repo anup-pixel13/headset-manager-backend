@@ -228,13 +228,15 @@ export const getAllAssignments = async (req, res) => {
             }
           : null,
 
-        agent: {
-          id: a.agent_id,
-          name: a.agent_name,
-          employeeId: resolvedEmpId || null,
-          email: a.agent_email,
-          phone: a.agent_phone,
-        },
+		  agent: {
+		    id: a.agent_id,
+		    name: a.agent_name,
+		    employeeId: resolvedEmpId || null,
+		    email: a.agent_email,
+		    phone: a.agent_phone,
+		    manager: a.ha_manager_name || a.manager_name || null,
+		    teamLeader: a.ha_tl_name || a.tl_name || null,
+		  },
         process: {
           id: a.process_id,
           name: a.process_name,

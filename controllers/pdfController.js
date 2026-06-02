@@ -283,85 +283,84 @@ const toISODate = (d) => {
 export const generateDepositForm = async (req, res) => {
   try {
     const { assignment_id } = req.params;
-	// ✅ If this assignment was created via process-change, pull old/new context for PDF
-	// ✅ If this assignment has a process-change deposit, pull old/new context for PDF.
-	// Join path: process_change deposit (dpc) -> transfers (t) via t.deposit_id = dpc.id
-	const [pcRows] = await db.query(
-	  `
-	  SELECT
-	    t.id AS transfer_id,
-	    t.transfer_date,
-	    fp.name AS from_process_name,
-	    tp.name AS to_process_name,
 
-	    t.old_headset_number,
-	    t.new_headset_number,
+    // ✅ If this assignment has a process-change deposit, pull old/new context for PDF.
+    const [pcRows] = await db.query(
+      `
+      SELECT
+        t.id AS transfer_id,
+        t.transfer_date,
+        fp.name AS from_process_name,
+        tp.name AS to_process_name,
 
-	    dpc.id AS process_change_deposit_id,
-	    dpc.process_change_fee,
-	    dpc.deposit_amount AS process_change_amount,
-	    dpc.receipt_number AS process_change_receipt,
+        t.old_headset_number,
+        t.new_headset_number,
 
-	    -- old/base deposit: infer from OLD headset number saved on process_change deposit
-	    dold.deposit_amount AS old_base_deposit_amount,
-	    dold.refund_eligible_amount AS old_refund_eligible_amount,
+        dpc.id AS process_change_deposit_id,
+        dpc.process_change_fee,
+        dpc.deposit_amount AS process_change_amount,
+        dpc.receipt_number AS process_change_receipt,
 
-	    -- new/base deposit: base deposit for THIS assignment
-	    dnew.deposit_amount AS new_base_deposit_amount,
-	    dnew.refund_eligible_amount AS new_refund_eligible_amount
-	  FROM deposits dpc
-	  LEFT JOIN transfers t
-	    ON t.deposit_id = dpc.id
-	   AND t.transfer_type = 'agent_process_change'
-	  LEFT JOIN processes fp ON fp.id = t.from_process_id
-	  LEFT JOIN processes tp ON tp.id = t.to_process_id
+        -- old/base deposit: infer from OLD headset number saved on process_change deposit
+        dold.deposit_amount AS old_base_deposit_amount,
+        dold.refund_eligible_amount AS old_refund_eligible_amount,
 
-	  -- Old/base deposit: take latest base deposit for same agent+old_headset_number
-	  LEFT JOIN (
-	    SELECT d1.*
-	    FROM deposits d1
-	    JOIN (
-	      SELECT agent_id, headset_number, MAX(id) AS max_id
-	      FROM deposits
-	      WHERE deposit_type IN ('voix','tech')
-	      GROUP BY agent_id, headset_number
-	    ) mx ON mx.agent_id = d1.agent_id AND mx.headset_number = d1.headset_number AND mx.max_id = d1.id
-	  ) dold
-	    ON dold.agent_id = dpc.agent_id
-	   AND dold.headset_number = dpc.old_headset_number
+        -- new/base deposit: base deposit for THIS assignment
+        dnew.deposit_amount AS new_base_deposit_amount,
+        dnew.refund_eligible_amount AS new_refund_eligible_amount
+      FROM deposits dpc
+      LEFT JOIN transfers t
+        ON t.deposit_id = dpc.id
+       AND t.transfer_type = 'agent_process_change'
+      LEFT JOIN processes fp ON fp.id = t.from_process_id
+      LEFT JOIN processes tp ON tp.id = t.to_process_id
 
-	  -- New/base deposit: latest base deposit for this assignment
-	  LEFT JOIN (
-	    SELECT d1.*
-	    FROM deposits d1
-	    JOIN (
-	      SELECT assignment_id, MAX(id) AS max_id
-	      FROM deposits
-	      WHERE deposit_type IN ('voix','tech')
-	      GROUP BY assignment_id
-	    ) mx ON mx.assignment_id = d1.assignment_id AND mx.max_id = d1.id
-	  ) dnew
-	    ON dnew.assignment_id = dpc.assignment_id
+      LEFT JOIN (
+        SELECT d1.*
+        FROM deposits d1
+        JOIN (
+          SELECT agent_id, headset_number, MAX(id) AS max_id
+          FROM deposits
+          WHERE deposit_type IN ('voix','tech')
+          GROUP BY agent_id, headset_number
+        ) mx ON mx.agent_id = d1.agent_id AND mx.headset_number = d1.headset_number AND mx.max_id = d1.id
+      ) dold
+        ON dold.agent_id = dpc.agent_id
+       AND dold.headset_number = dpc.old_headset_number
 
-	  WHERE dpc.assignment_id = ?
-	    AND dpc.deposit_type = 'process_change'
-	  ORDER BY dpc.id DESC
-	  LIMIT 1
-	  `,
-	  [assignment_id]
-	);
+      LEFT JOIN (
+        SELECT d1.*
+        FROM deposits d1
+        JOIN (
+          SELECT assignment_id, MAX(id) AS max_id
+          FROM deposits
+          WHERE deposit_type IN ('voix','tech')
+          GROUP BY assignment_id
+        ) mx ON mx.assignment_id = d1.assignment_id AND mx.max_id = d1.id
+      ) dnew
+        ON dnew.assignment_id = dpc.assignment_id
 
-	const processChange = pcRows?.[0] || null;
-	const isProcessChange = !!processChange?.process_change_deposit_id;
+      WHERE dpc.assignment_id = ?
+        AND dpc.deposit_type = 'process_change'
+      ORDER BY dpc.id DESC
+      LIMIT 1
+      `,
+      [assignment_id]
+    );
+
+    const processChange = pcRows?.[0] || null;
+    const isProcessChange = !!processChange?.process_change_deposit_id;
 
     const [assignments] = await db.query(
       `SELECT 
         ha.*,
+        h.id as headset_id,
         h.headset_number,
         h.headset_type,
         hb.brand_name,
         hb.deposit_amount as brand_deposit,
         hb.refund_amount as brand_refund,
+        a.id as agent_id,
         u.name as agent_name,
         u.employee_id,
         u.temp_employee_id,
@@ -381,17 +380,17 @@ export const generateDepositForm = async (req, res) => {
        JOIN agents a ON ha.agent_id = a.id
        JOIN users u ON a.user_id = u.id
        JOIN processes p ON ha.process_id = p.id
-	   LEFT JOIN (
-	     SELECT d1.*
-	     FROM deposits d1
-	     JOIN (
-	       SELECT assignment_id, MAX(id) AS max_id
-	       FROM deposits
-	       WHERE deposit_type IN ('voix','tech')
-	       GROUP BY assignment_id
-	     ) mx ON mx.assignment_id = d1.assignment_id AND mx.max_id = d1.id
-	   ) d ON d.assignment_id = ha.id
-	          LEFT JOIN users assigned_by ON ha.assigned_by = assigned_by.id
+       LEFT JOIN (
+         SELECT d1.*
+         FROM deposits d1
+         JOIN (
+           SELECT assignment_id, MAX(id) AS max_id
+           FROM deposits
+           WHERE deposit_type IN ('voix','tech')
+           GROUP BY assignment_id
+         ) mx ON mx.assignment_id = d1.assignment_id AND mx.max_id = d1.id
+       ) d ON d.assignment_id = ha.id
+       LEFT JOIN users assigned_by ON ha.assigned_by = assigned_by.id
        WHERE ha.id = ?`,
       [assignment_id]
     );
@@ -430,7 +429,6 @@ export const generateDepositForm = async (req, res) => {
     const isVoix = String(data.headset_type || '').startsWith('voix');
     const formType = isVoix ? 'VOIX HEADSET DEPOSIT FORM' : 'TECH HEADSET DEPOSIT FORM';
 
-    // Pull terms from pdf_templates (bullet JSON)
     const tpl = await getPdfTemplateByType(isVoix ? 'voix_deposit' : 'tech_deposit');
     const fallbackTerms = [
       '1. The headset remains the property of the company.',
@@ -445,13 +443,91 @@ export const generateDepositForm = async (req, res) => {
     const terms = templateTerms.length ? templateTerms : fallbackTerms;
 
     const pdfDoc = await PDFDocument.create();
+
     let page = pdfDoc.addPage([595, 842]); // A4
-    const { width, height } = page.getSize();
+    let { width, height } = page.getSize();
 
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    let y = height - 50;
+    const PAGE_TOP = height - 50;
+    const PAGE_BOTTOM = 70;
+    const FOOTER_Y = 35;
+
+    let y = PAGE_TOP;
+
+    const drawFooter = () => {
+      page.drawText(`Generated on: ${formatDateTimeDisplay(new Date())}`, {
+        x: 50,
+        y: FOOTER_Y,
+        size: 8,
+        font: fontRegular,
+        color: rgb(0.5, 0.5, 0.5)
+      });
+
+      page.drawText('This is a computer-generated document.', {
+        x: width - 220,
+        y: FOOTER_Y,
+        size: 8,
+        font: fontRegular,
+        color: rgb(0.5, 0.5, 0.5)
+      });
+    };
+
+    const newPage = () => {
+      drawFooter();
+      page = pdfDoc.addPage([595, 842]);
+      ({ width, height } = page.getSize());
+      y = PAGE_TOP;
+    };
+
+    const ensureSpace = (needed) => {
+      if (y - needed < PAGE_BOTTOM) {
+        newPage();
+      }
+    };
+
+    const drawField = (label, value, yPos, valueX = 180) => {
+      page.drawText(label, { x: 50, y: yPos, size: 10, font: fontBold });
+      page.drawText(`: ${value || 'N/A'}`, { x: valueX, y: yPos, size: 10, font: fontRegular });
+    };
+
+    const drawSectionTitle = (title, lineEndX = 200) => {
+      ensureSpace(28);
+      page.drawText(title, {
+        x: 50,
+        y,
+        size: 11,
+        font: fontBold,
+        color: rgb(0, 0, 0.5)
+      });
+      y -= 5;
+      page.drawLine({
+        start: { x: 50, y },
+        end: { x: lineEndX, y },
+        thickness: 0.5,
+        color: rgb(0, 0, 0.5)
+      });
+      y -= 20;
+    };
+
+    const drawFieldRow = (label, value, valueX = 180) => {
+      ensureSpace(18);
+      drawField(label, value, y, valueX);
+      y -= 18;
+    };
+
+    const drawParagraph = (text, size = 9) => {
+      ensureSpace(16);
+      page.drawText(String(text), {
+        x: 50,
+        y,
+        size,
+        font: fontRegular,
+        color: rgb(0.2, 0.2, 0.2)
+      });
+      y -= 14;
+    };
 
     // Header
     page.drawText(company.name, {
@@ -489,7 +565,7 @@ export const generateDepositForm = async (req, res) => {
     });
 
     // Title
-    y -= 26; // tightened
+    y -= 26;
     page.drawText(formType, {
       x: 50,
       y,
@@ -513,120 +589,67 @@ export const generateDepositForm = async (req, res) => {
       font: fontRegular
     });
 
-    const drawField = (label, value, yPos) => {
-      page.drawText(label, { x: 50, y: yPos, size: 10, font: fontBold });
-      page.drawText(`: ${value || 'N/A'}`, { x: 180, y: yPos, size: 10, font: fontRegular });
-    };
-
-    // Employee Details (tightened spacing; Process Category removed)
+    // Employee Details
     y -= 22;
-    page.drawText('EMPLOYEE DETAILS', { x: 50, y, size: 11, font: fontBold, color: rgb(0, 0, 0.5) });
-    y -= 5;
-    page.drawLine({ start: { x: 50, y }, end: { x: 200, y }, thickness: 0.5, color: rgb(0, 0, 0.5) });
-
-    y -= 20;
-    drawField('Employee Name', data.agent_name, y);
-    y -= 18;
-    drawField('Employee ID', resolvedEmpId, y);
-    y -= 18;
-    drawField('Phone', data.agent_phone, y);
-    y -= 18;
-    drawField('Email', data.agent_email, y);
-    y -= 18;
-    drawField('Process', data.process_name, y);
+    drawSectionTitle('EMPLOYEE DETAILS', 200);
+    drawFieldRow('Employee Name', data.agent_name);
+    drawFieldRow('Employee ID', resolvedEmpId);
+    drawFieldRow('Phone', data.agent_phone);
+    drawFieldRow('Email', data.agent_email);
+    drawFieldRow('Process', data.process_name);
 
     // Headset Details
-    y -= 32;
-    page.drawText('HEADSET DETAILS', { x: 50, y, size: 11, font: fontBold, color: rgb(0, 0, 0.5) });
-    y -= 5;
-    page.drawLine({ start: { x: 50, y }, end: { x: 200, y }, thickness: 0.5, color: rgb(0, 0, 0.5) });
-
-    y -= 20;
-    drawField('Headset Number', data.headset_number, y);
-    y -= 18;
-    drawField('Headset Type', headsetTypeLabel(data.headset_type), y);
-    y -= 18;
-    drawField('Brand', data.brand_name, y);
-    y -= 18;
-    drawField('Assignment Date', formatDateDisplay(data.assignment_date), y);
+    y -= 14;
+    drawSectionTitle('HEADSET DETAILS', 200);
+    drawFieldRow('Headset Number', data.headset_number);
+    drawFieldRow('Headset Type', headsetTypeLabel(data.headset_type));
+    drawFieldRow('Brand', data.brand_name);
+    drawFieldRow('Assignment Date', formatDateDisplay(data.assignment_date));
 
     // Deposit Details
-    y -= 32;
-    page.drawText('DEPOSIT DETAILS', { x: 50, y, size: 11, font: fontBold, color: rgb(0, 0, 0.5) });
-    y -= 5;
-    page.drawLine({ start: { x: 50, y }, end: { x: 200, y }, thickness: 0.5, color: rgb(0, 0, 0.5) });
+    y -= 14;
+    drawSectionTitle('DEPOSIT DETAILS', 200);
+    drawFieldRow('Deposit Amount', formatCurrencyPdf(data.deposit_amount));
+    drawFieldRow('Refund Eligible', formatCurrencyPdf(data.refund_eligible_amount));
 
-    y -= 20;
-    drawField('Deposit Amount', formatCurrencyPdf(data.deposit_amount), y);
-    y -= 18;
-    drawField('Refund Eligible', formatCurrencyPdf(data.refund_eligible_amount), y);
-	
-	if (isProcessChange) {
-	  y -= 32;
-	  page.drawText('PROCESS CHANGE SUMMARY', { x: 50, y, size: 11, font: fontBold, color: rgb(0, 0, 0.5) });
-	  y -= 5;
-	  page.drawLine({ start: { x: 50, y }, end: { x: 260, y }, thickness: 0.5, color: rgb(0, 0, 0.5) });
+    // ✅ Keep process change summary ONLY for process-change PDFs
+    if (isProcessChange) {
+      y -= 14;
+      drawSectionTitle('PROCESS CHANGE SUMMARY', 260);
 
-	  y -= 20;
-	  drawField('Old Process', processChange.from_process_name || '—', y);
-	  y -= 18;
-	  drawField('New Process', processChange.to_process_name || data.process_name || '—', y);
+      drawFieldRow('Old Process', processChange.from_process_name || '—');
+      drawFieldRow('New Process', processChange.to_process_name || data.process_name || '—');
+      drawFieldRow('Old Headset', processChange.old_headset_number || '—');
+      drawFieldRow('Current Headset', processChange.new_headset_number || data.headset_number || '—');
+      drawFieldRow(
+        'Original Refund Eligible',
+        formatCurrencyPdf(processChange.old_refund_eligible_amount)
+      );
+      drawFieldRow(
+        'Current Refund Eligible',
+        formatCurrencyPdf(processChange.new_refund_eligible_amount ?? data.refund_eligible_amount)
+      );
 
-	  y -= 18;
-	  drawField('Old Headset', processChange.old_headset_number || '—', y);
-	  y -= 18;
-	  drawField('Current Headset', processChange.new_headset_number || data.headset_number || '—', y);
+      const fee = Number(processChange.process_change_fee || 0);
+      drawFieldRow('Process Change Adjustment', formatCurrencyPdf(fee));
 
-	  // show both refund eligibilities
-	  y -= 18;
-	  drawField('Original Refund Eligible', formatCurrencyPdf(processChange.old_refund_eligible_amount), y);
-	  y -= 18;
-	  drawField('Current Refund Eligible', formatCurrencyPdf(processChange.new_refund_eligible_amount ?? data.refund_eligible_amount), y);
-
-	  // adjustment (difference charged)
-	  const fee = Number(processChange.process_change_fee || 0);
-	  y -= 18;
-	  drawField('Process Change Adjustment', formatCurrencyPdf(fee), y);
-
-	  y -= 18;
-	  page.drawText(
-	    `Note: Final exit refund is based on the ORIGINAL headset tier (Original Refund Eligible).`,
-	    { x: 50, y, size: 9, font: fontRegular, color: rgb(0.2, 0.2, 0.2) }
-	  );
-	}
+      drawParagraph(
+        'Note: Final exit refund is based on the ORIGINAL headset tier (Original Refund Eligible).',
+        8
+      );
+    }
 
     // Terms
-    y -= 34;
-    page.drawText('TERMS AND CONDITIONS', { x: 50, y, size: 11, font: fontBold, color: rgb(0, 0, 0.5) });
-    y -= 5;
-    page.drawLine({ start: { x: 50, y }, end: { x: 250, y }, thickness: 0.5, color: rgb(0, 0, 0.5) });
-
-    y -= 16;
-    for (const term of terms) {
-      page.drawText(String(term), { x: 50, y, size: 9, font: fontRegular });
-      y -= 12; // tightened from 14
-    }
-
-    // Box layout
-    const boxW = 240;
-    const boxH = 44;
-    const gapX = 15;
-    const gapRow = 58;
-    const footerY = 35;
-    const footerSafeTop = footerY + 40;
-    // 96 = signature title/underline spacing + vertical offset before first signature row
-    const signatureSectionLeadInHeight = 96;
-    const minYForSignaturesSection = footerSafeTop + signatureSectionLeadInHeight + boxH + gapRow;
-
-    if (y < minYForSignaturesSection) {
-      page = pdfDoc.addPage([595, 842]);
-      y = height - 60;
-    }
-
-    // =====================
-    // SIGNATURES (2x2 grid)
-    // =====================
     y -= 14;
+    drawSectionTitle('TERMS AND CONDITIONS', 250);
+    for (const term of terms) {
+      drawParagraph(term, 9);
+    }
+
+    // Signatures
+    y -= 10;
+    ensureSpace(190);
+
     page.drawText('SIGNATURES', {
       x: 50,
       y,
@@ -653,11 +676,15 @@ export const generateDepositForm = async (req, res) => {
     const adminImg = await tryEmbedSignatureFromPath(pdfDoc, adminSig?.signature_path);
     const itImg = await tryEmbedSignatureFromPath(pdfDoc, itSig?.signature_path);
 
+    const boxW = 240;
+    const boxH = 44;
+    const gapX = 15;
+    const gapRow = 58;
+
     const xLeft = 50;
     const xRight = xLeft + boxW + gapX;
 
-    // Start boxes below the SIGNATURES heading line
-    const row1Y = y - 74;
+    const row1Y = y - 52;
     const row2Y = row1Y - (boxH + gapRow);
 
     const drawSigBox = (x, yBox, title, sig, imgObj) => {
@@ -706,43 +733,28 @@ export const generateDepositForm = async (req, res) => {
     drawSigBox(xLeft, row2Y, 'Admin Executive Signature', adminSig, adminImg);
     drawSigBox(xRight, row2Y, 'IT Staff Signature', itSig, itImg);
 
-    // Footer
-    page.drawText(`Generated on: ${formatDateTimeDisplay(new Date())}`, {
-      x: 50,
-      y: footerY,
-      size: 8,
-      font: fontRegular,
-      color: rgb(0.5, 0.5, 0.5)
-    });
+    y = row2Y - 54;
 
-    page.drawText('This is a computer-generated document.', {
-      x: width - 220,
-      y: footerY,
-      size: 8,
-      font: fontRegular,
-      color: rgb(0.5, 0.5, 0.5)
-    });
+    drawFooter();
 
-    // Save PDF
     const pdfBytes = await pdfDoc.save();
 
-	const safeBase = [
-	  sanitizeFilePart(data.agent_name),
-	  sanitizeFilePart(data.headset_number),
-	  sanitizeFilePart(data.process_name),
-	  sanitizeFilePart(toISODate(data.deposit_date || new Date()))
-	]
-	  .filter(Boolean)
-	  .join('_');
+    const safeBase = [
+      sanitizeFilePart(data.agent_name),
+      sanitizeFilePart(data.headset_number),
+      sanitizeFilePart(data.process_name),
+      sanitizeFilePart(toISODate(data.deposit_date || new Date()))
+    ]
+      .filter(Boolean)
+      .join('_');
 
-	let fileName = generateFileName(safeBase, 'pdf'); // generateFileName ignores content, but ext detection uses it
-	if (!fileName.toLowerCase().endsWith('.pdf')) fileName += '.pdf';
+    let fileName = generateFileName(safeBase, 'pdf');
+    if (!fileName.toLowerCase().endsWith('.pdf')) fileName += '.pdf';
 
-	// extra safety: ensure directory exists at write time
-	if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
+    if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 
-	const filePath = path.join(PDF_DIR, fileName);
-	fs.writeFileSync(filePath, pdfBytes);
+    const filePath = path.join(PDF_DIR, fileName);
+    fs.writeFileSync(filePath, pdfBytes);
 
     await db.query(
       `INSERT INTO pdf_documents (

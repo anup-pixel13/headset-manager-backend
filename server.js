@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import db, { testDbConnection } from './config/db.js';
+import db from './config/db.js';
 
 dotenv.config();
 
@@ -58,11 +58,6 @@ app.get('/health', async (req, res) => {
 
 const PORT = Number(process.env.PORT || 3000);
 
-app.listen(PORT, '0.0.0.0', async () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ DB test app listening on ${PORT}`);
-  try {
-    await testDbConnection();
-  } catch (err) {
-    console.error('❌ Initial DB connection test failed:', err);
-  }
 });

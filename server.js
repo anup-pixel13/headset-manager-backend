@@ -188,7 +188,9 @@ app.use((err, req, res, next) => {
 // ============================================
 // START SERVER
 // ============================================
-const PORT = process.env.PORT || 8081;
+// const PORT = process.env.PORT || 8081;
+
+const PORT = Number(process.env.PORT || 3000);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -203,6 +205,10 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 });
 
+server.on('error', (err) => {
+  console.error('❌ Listen error:', err);
+  process.exit(1);
+});
 server.timeout = 120_000;
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 70_000;

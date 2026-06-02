@@ -231,6 +231,8 @@ class Assignment {
         assigned_by.name as assigned_by_name,
         verified_by.name as verified_by_name,
         return_by.name as return_verified_by_name,
+        ha.manager_name as ha_manager_name,
+        ha.tl_name as ha_tl_name,
         mgr.name as manager_name,
         tl.name as tl_name
        FROM headset_assignments ha

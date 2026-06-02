@@ -445,7 +445,7 @@ export const generateDepositForm = async (req, res) => {
     const terms = templateTerms.length ? templateTerms : fallbackTerms;
 
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595, 842]); // A4
+    let page = pdfDoc.addPage([595, 842]); // A4
     const { width, height } = page.getSize();
 
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -607,6 +607,22 @@ export const generateDepositForm = async (req, res) => {
       y -= 12; // tightened from 14
     }
 
+    // Box layout
+    const boxW = 240;
+    const boxH = 44;
+    const gapX = 15;
+    const gapRow = 58;
+    const footerY = 35;
+    const footerSafeTop = footerY + 40;
+    // 96 = signature title/underline spacing + vertical offset before first signature row
+    const signatureSectionLeadInHeight = 96;
+    const minYForSignaturesSection = footerSafeTop + signatureSectionLeadInHeight + boxH + gapRow;
+
+    if (y < minYForSignaturesSection) {
+      page = pdfDoc.addPage([595, 842]);
+      y = height - 60;
+    }
+
     // =====================
     // SIGNATURES (2x2 grid)
     // =====================
@@ -637,21 +653,11 @@ export const generateDepositForm = async (req, res) => {
     const adminImg = await tryEmbedSignatureFromPath(pdfDoc, adminSig?.signature_path);
     const itImg = await tryEmbedSignatureFromPath(pdfDoc, itSig?.signature_path);
 
-    // Footer reserved space
-    const footerY = 35;
-    const footerSafeTop = footerY + 40;
-
-    // Box layout
-    const boxW = 240;
-    const boxH = 44;
-    const gapX = 15;
-    const gapRow = 58;
-
     const xLeft = 50;
     const xRight = xLeft + boxW + gapX;
 
-    // Start boxes below the SIGNATURES heading line but keep them above footer
-    const row1Y = Math.max(footerSafeTop + boxH + gapRow + 8, y - 74);
+    // Start boxes below the SIGNATURES heading line
+    const row1Y = y - 74;
     const row2Y = row1Y - (boxH + gapRow);
 
     const drawSigBox = (x, yBox, title, sig, imgObj) => {

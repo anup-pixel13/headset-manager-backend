@@ -308,8 +308,8 @@ export const getAssignmentById = async (req, res) => {
           employeeId: resolvedEmpId || null,
           email: a.agent_email,
           phone: a.agent_phone,
-          manager: a.manager_name,
-          teamLeader: a.tl_name,
+          manager: a.ha_manager_name || a.manager_name || null,
+          teamLeader: a.ha_tl_name || a.tl_name || null,
         },
         process: {
           name: a.process_name,

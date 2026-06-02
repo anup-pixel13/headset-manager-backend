@@ -614,7 +614,9 @@ export const generateDepositForm = async (req, res) => {
     const gapRow = 58;
     const footerY = 35;
     const footerSafeTop = footerY + 40;
-    const minYForSignaturesSection = footerSafeTop + 96 + boxH + gapRow;
+    // 96 = signature title/underline spacing + vertical offset before first signature row
+    const signatureSectionLeadInHeight = 96;
+    const minYForSignaturesSection = footerSafeTop + signatureSectionLeadInHeight + boxH + gapRow;
 
     if (y < minYForSignaturesSection) {
       page = pdfDoc.addPage([595, 842]);

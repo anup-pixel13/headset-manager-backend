@@ -6,6 +6,13 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 
 // Load environment variables FIRST
+process.on('uncaughtException', (err) => {
+  console.error('❌ uncaughtException:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('❌ unhandledRejection:', err);
+});
 dotenv.config();
 
 // Import routes

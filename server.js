@@ -18,9 +18,9 @@ import repairRoutes from './routes/repairRoutes.js';
 import transferRoutes from './routes/transferRoutes.js';
 import pdfRoutes from './routes/pdfRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
-// import processRoutes from './routes/processRoutes.js';
-// import yjackRoutes from './routes/yjackRoutes.js';
-// import refundRoutes from './routes/refundRoutes.js';
+import processRoutes from './routes/processRoutes.js';
+import yjackRoutes from './routes/yjackRoutes.js';
+import refundRoutes from './routes/refundRoutes.js';
 
 
 
@@ -71,9 +71,9 @@ app.use('/api/repairs', repairRoutes);
 app.use('/api/transfers', transferRoutes);
 app.use('/api/pdfs', pdfRoutes);
 app.use('/api/reports', reportRoutes);
-// app.use('/api/processes', processRoutes);
-// app.use('/api/yjack', yjackRoutes);
-// app.use('/api/refunds', refundRoutes);
+app.use('/api/processes', processRoutes);
+app.use('/api/yjack', yjackRoutes);
+app.use('/api/refunds', refundRoutes);
 
 
 app.get('/', (req, res) => {

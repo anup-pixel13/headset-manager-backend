@@ -62,7 +62,7 @@ app.use('/uploads', express.static(uploadRoot));
 
 
 app.use('/api/auth', authRoutes);
-//app.use('/api/agents', agentRoutes);
+app.use('/api/agents', agentRoutes);
 //app.use('/api/assignments', assignmentRoutes);
 // app.use('/api/headsets', headsetRoutes);
 // app.use('/api/dashboard', dashboardRoutes);

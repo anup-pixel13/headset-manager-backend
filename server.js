@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import db from './config/db.js';
+import authRoutes from './routes/authRoutes.js';
 
 dotenv.config();
 
@@ -36,16 +37,13 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.use('/uploads', express.static(uploadRoot));
 
 app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Backend running'
-  });
+  res.json({ success: true, message: 'Backend running' });
 });
 
 app.get('/health', async (req, res) => {
@@ -65,30 +63,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-const loadRoute = async (label, mountPath, importPath) => {
-  try {
-    const mod = await import(importPath);
-    const router = mod.default;
-    app.use(mountPath, router);
-    console.log(`✅ Loaded ${label} at ${mountPath}`);
-  } catch (err) {
-    console.error(`❌ Failed loading ${label}:`, err);
-  }
-};
-
-await loadRoute('authRoutes', '/api/auth', './routes/authRoutes.js');
-await loadRoute('agentRoutes', '/api/agents', './routes/agentRoutes.js');
-await loadRoute('assignmentRoutes', '/api/assignments', './routes/assignmentRoutes.js');
-await loadRoute('headsetRoutes', '/api/headsets', './routes/headsetRoutes.js');
-await loadRoute('dashboardRoutes', '/api/dashboard', './routes/dashboardRoutes.js');
-await loadRoute('depositRoutes', '/api/deposits', './routes/depositRoutes.js');
-await loadRoute('repairRoutes', '/api/repairs', './routes/repairRoutes.js');
-await loadRoute('transferRoutes', '/api/transfers', './routes/transferRoutes.js');
-await loadRoute('pdfRoutes', '/api/pdfs', './routes/pdfRoutes.js');
-await loadRoute('reportRoutes', '/api/reports', './routes/reportRoutes.js');
-await loadRoute('processRoutes', '/api/processes', './routes/processRoutes.js');
-await loadRoute('yjackRoutes', '/api/yjack', './routes/yjackRoutes.js');
-await loadRoute('refundRoutes', '/api/refunds', './routes/refundRoutes.js');
+app.use('/api/auth', authRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -108,5 +83,5 @@ app.use((err, req, res, next) => {
 const PORT = Number(process.env.PORT || 3000);
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server listening on ${PORT}`);
+  console.log(`✅ Server with authRoutes listening on ${PORT}`);
 });

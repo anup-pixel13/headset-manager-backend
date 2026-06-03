@@ -92,6 +92,35 @@ app.get('/uploads/pdfs/:file', (req, res) => {
   return res.sendFile(filePath);
 });
 
+app.get('/debug/upload-file', async (req, res) => {
+  try {
+    const rel = String(req.query.path || '');
+    if (!rel.startsWith('/uploads/')) {
+      return res.status(400).json({ success: false, message: 'path must start with /uploads/' });
+    }
+
+    const abs = path.join(uploadRoot, rel.replace(/^\/uploads\//, ''));
+    if (!fs.existsSync(abs)) {
+      return res.status(404).json({ success: false, message: 'file not found', abs });
+    }
+
+    const stat = fs.statSync(abs);
+    const fd = fs.openSync(abs, 'r');
+    const buf = Buffer.alloc(32);
+    fs.readSync(fd, buf, 0, 32, 0);
+    fs.closeSync(fd);
+
+    res.json({
+      success: true,
+      abs,
+      size: stat.size,
+      firstBytesHex: buf.toString('hex'),
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 app.use('/uploads', express.static(uploadRoot));
 
 app.get('/', (req, res) => {

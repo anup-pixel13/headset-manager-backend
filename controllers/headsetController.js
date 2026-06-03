@@ -738,7 +738,21 @@ export const addHeadset = async (req, res) => {
     // file.filename is stored in uploads/headset-images
     const image_url_1 = `/uploads/headset-images/${file1.filename}`;
     const image_url_2 = `/uploads/headset-images/${file2.filename}`;
+	console.log('image1 meta:', file1 && {
+	  originalname: file1.originalname,
+	  mimetype: file1.mimetype,
+	  filename: file1.filename,
+	  size: file1.size,
+	  path: file1.path,
+	});
 
+	console.log('image2 meta:', file2 && {
+	  originalname: file2.originalname,
+	  mimetype: file2.mimetype,
+	  filename: file2.filename,
+	  size: file2.size,
+	  path: file2.path,
+	});
     // Insert
     const [result] = await db.query(
       `INSERT INTO headsets (

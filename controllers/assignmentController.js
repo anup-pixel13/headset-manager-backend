@@ -12,7 +12,7 @@ import {
 // Helpers
 // ============================================
 const isPermanentEmployeeId = (employeeId) =>
-  /^AIPL\d{4,5}$/i.test(String(employeeId || '').trim());
+  /^AIPL\d{1,5}$/i.test(String(employeeId || '').trim());
 
 const buildBaseUrl = (req) => `${req.protocol}://${req.get('host')}`;
 
@@ -771,7 +771,7 @@ export const getPendingPermanentIds = async (req, res) => {
         AND u.is_active = 1
         AND (
           COALESCE(NULLIF(TRIM(u.employee_id), ''), NULLIF(TRIM(u.temp_employee_id), '')) IS NULL
-          OR COALESCE(NULLIF(TRIM(u.employee_id), ''), NULLIF(TRIM(u.temp_employee_id), '')) NOT REGEXP '^AIPL[0-9]{4,5}$'
+          OR COALESCE(NULLIF(TRIM(u.employee_id), ''), NULLIF(TRIM(u.temp_employee_id), '')) NOT REGEXP '^AIPL[0-9]{1,5}$'
         )
       ORDER BY ha.assignment_date DESC`
     );

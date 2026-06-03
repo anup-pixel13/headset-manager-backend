@@ -108,7 +108,7 @@ const headsetTypeLabel = (t) => {
 };
 
 const isPermanentEmployeeId = (employeeId) =>
-  /^AIPL\d{4,5}$/i.test(String(employeeId || '').trim());
+  /^AIPL\d{1,5}$/i.test(String(employeeId || '').trim());
 
 // Strict signature completion: Agent + AdminExec + IT + (Manager or TL)
 const isAssignmentCompleteForPdf = async (dbConn, assignmentId) => {
@@ -403,14 +403,14 @@ export const generateDepositForm = async (req, res) => {
 
     // Gate 1: permanent employee ID must exist
     const resolvedEmpId = (data.employee_id || data.temp_employee_id || '').toString().trim();
-    if (!isPermanentEmployeeId(resolvedEmpId)) {
-      return res.status(400).json(
-        errorResponse('PDF not available until Permanent Employee ID (AIPLxxxx) is updated.', {
-          employeeId: resolvedEmpId || null,
-          requiredFormat: 'AIPL#### or AIPL#####'
-        })
-      );
-    }
+	if (!isPermanentEmployeeId(resolvedEmpId)) {
+	  return res.status(400).json(
+	    errorResponse('PDF not available until Permanent Employee ID is updated.', {
+	      employeeId: resolvedEmpId || null,
+	      requiredFormat: 'AIPL1 to AIPL99999'
+	    })
+	  );
+	}
 
     // Gate 2: strict signatures
     const gate = await isAssignmentCompleteForPdf(db, assignment_id);

@@ -724,11 +724,12 @@ export const updateEmployeeId = async (req, res) => {
     }
 
     const cleanEmployeeId = sanitizeString(employee_id).toUpperCase();
-    if (!/^AIPL\d{4,5}$/.test(cleanEmployeeId)) {
-      return res.status(400).json(errorResponse('Permanent Employee ID must be like AIPL1234'));
+    if (!/^AIPL\d{1,5}$/.test(cleanEmployeeId)) {
+      return res
+        .status(400)
+        .json(errorResponse('Permanent Employee ID must be in format AIPL12345 (AIPL + 1 to 5 digits)'));
     }
 
-    // Call stored procedure
     await db.query(
       'CALL sp_update_employee_id(?, ?, ?, @success, @message)',
       [id, cleanEmployeeId, req.user.id]
@@ -742,16 +743,20 @@ export const updateEmployeeId = async (req, res) => {
 
     console.log(`✅ Employee ID updated: ${cleanEmployeeId} by ${req.user.name}`);
 
-    return res.json(successResponse({
-      userId: parseInt(id, 10),
-      employeeId: cleanEmployeeId
-    }, output.message));
+    return res.json(
+      successResponse(
+        {
+          userId: parseInt(id, 10),
+          employeeId: cleanEmployeeId
+        },
+        output.message
+      )
+    );
   } catch (error) {
     console.error('❌ Update employee ID error:', error);
     return res.status(500).json(errorResponse('Failed to update employee ID'));
   }
 };
-
 // ============================================
 // GET PROCESSES (For dropdown)
 // ============================================

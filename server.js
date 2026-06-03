@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import db from './config/db.js';
 
 dotenv.config();
 
@@ -25,58 +26,38 @@ const uploadRoot = process.env.UPLOAD_ROOT
   ? path.resolve(process.env.UPLOAD_ROOT)
   : path.join(__dirname, 'uploads');
 
-const uploadDirs = [
-  path.join(uploadRoot, 'headset-images'),
-  path.join(uploadRoot, 'signatures'),
-  path.join(uploadRoot, 'pdfs')
-];
-
-uploadDirs.forEach((dir) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`📁 Created directory: ${dir}`);
-  }
+['headset-images', 'signatures', 'pdfs'].forEach((folder) => {
+  const dir = path.join(uploadRoot, folder);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
-
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'https://abss.abss.co.in',
-  process.env.FRONTEND_URL
-].filter(Boolean);
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    if (process.env.NODE_ENV !== 'production' && origin.startsWith('http://192.168.')) {
-      return callback(null, true);
-    }
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Token']
+  origin: true,
+  credentials: true
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-app.get('/', (req, res) => {
-  res.json({ success: true, message: 'Core app running' });
-});
-
-app.get('/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Core health OK',
-    uploadRoot,
-    frontend: process.env.FRONTEND_URL || null
-  });
+app.get('/health', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT 1 AS ok');
+    res.json({
+      success: true,
+      db: rows?.[0]?.ok === 1,
+      uploadRoot
+    });
+  } catch (err) {
+    console.error('DB health error:', err);
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
 });
 
 const PORT = Number(process.env.PORT || 3000);
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Core app listening on ${PORT}`);
+  console.log(`✅ DB test app listening on ${PORT}`);
 });

@@ -1,5 +1,5 @@
 // controllers/headsetController.js
-import db from '../config/database.js';
+import db from '../config/db.js';
 import Headset from '../models/Headset.js';
 import {
   successResponse,

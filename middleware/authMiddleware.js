@@ -1,4 +1,4 @@
-import db from '../config/database.js';
+import db from '../config/db.js';
 
 // Session duration from env or default 30 minutes
 const SESSION_DURATION_MS = (parseInt(process.env.SESSION_DURATION_MINUTES) || 30) * 60 * 1000;

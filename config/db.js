@@ -18,20 +18,5 @@ const pool = mysql.createPool({
 
 const db = pool.promise();
 
-export const testDbConnection = async () => {
-  const conn = await db.getConnection();
-  try {
-    await conn.query('SELECT 1');
-    console.log('✅ Database connected successfully');
-    console.log(`   Database: ${process.env.DB_NAME}`);
-    console.log(`   Host: ${process.env.DB_HOST}:${process.env.DB_PORT || 3306}`);
-  } finally {
-    conn.release();
-  }
-};
-
-export const getDbConnection = async () => {
-  return await db.getConnection();
-};
-
 export default db;
+export const getDbConnection = async () => db.getConnection();

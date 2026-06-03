@@ -78,6 +78,20 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+app.get('/uploads/pdfs/:file', (req, res) => {
+  const filePath = path.join(uploadRoot, 'pdfs', req.params.file);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send('File not found');
+  }
+
+  if (req.query.download === '1') {
+    return res.download(filePath, req.params.file);
+  }
+
+  return res.sendFile(filePath);
+});
+
 app.use('/uploads', express.static(uploadRoot));
 
 app.get('/', (req, res) => {

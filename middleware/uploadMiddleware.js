@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Resolve uploadRoot same way as server.js (fallback to server/uploads)
 const projectRoot = path.resolve(__dirname, '..');
 const uploadRoot = process.env.UPLOAD_ROOT
   ? path.resolve(process.env.UPLOAD_ROOT)
@@ -18,11 +17,24 @@ if (!fs.existsSync(headsetImagesDir)) {
   fs.mkdirSync(headsetImagesDir, { recursive: true });
 }
 
+const mimeToExt = (mimetype) => {
+  switch (mimetype) {
+    case 'image/png':
+      return '.png';
+    case 'image/jpeg':
+    case 'image/jpg':
+      return '.jpg';
+    case 'image/webp':
+      return '.webp';
+    default:
+      return '.jpg';
+  }
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, headsetImagesDir),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase();
-    const safeExt = ['.png', '.jpg', '.jpeg', '.webp'].includes(ext) ? ext : '.jpg';
+    const safeExt = mimeToExt(file.mimetype);
 
     const base = (req.body?.headset_number || 'HEADSET')
       .toString()
@@ -48,7 +60,7 @@ const fileFilter = (req, file, cb) => {
 export const headsetImagesUpload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB each
+  limits: { fileSize: 5 * 1024 * 1024 },
 }).fields([
   { name: 'image1', maxCount: 1 },
   { name: 'image2', maxCount: 1 },

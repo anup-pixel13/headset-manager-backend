@@ -9,7 +9,7 @@ import authRoutes from './routes/authRoutes.js';
 
 
 //import authRoutes from './routes/authRoutes.js';
-import agentRoutes from './routes/agentRoutes.js';
+//import agentRoutes from './routes/agentRoutes.js';
 //import assignmentRoutes from './routes/assignmentRoutes.js';
 // import headsetRoutes from './routes/headsetRoutes.js';
 // import dashboardRoutes from './routes/dashboardRoutes.js';
@@ -62,7 +62,7 @@ app.use('/uploads', express.static(uploadRoot));
 
 
 app.use('/api/auth', authRoutes);
-app.use('/api/agents', agentRoutes);
+//app.use('/api/agents', agentRoutes);
 //app.use('/api/assignments', assignmentRoutes);
 // app.use('/api/headsets', headsetRoutes);
 // app.use('/api/dashboard', dashboardRoutes);

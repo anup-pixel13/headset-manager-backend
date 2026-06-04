@@ -513,8 +513,24 @@ export const getTempReplacements = async (req, res) => {
 
     const wantActive = String(status).toLowerCase() !== 'inactive';
 
-    const where = [`ha.assignment_kind = 'temp_replacement'`, wantActive ? `ha.is_active = 1` : `ha.is_active = 0`];
+    const where = [`ha.assignment_kind = 'temp_replacement'`];
     const params = [];
+
+    if (wantActive) {
+      where.push(`(
+        ha.is_active = 1
+        OR (
+          ha.is_active = 0
+          AND ph.id IS NOT NULL
+          AND ph.status = 'repair'
+        )
+      )`);
+    } else {
+      where.push(`(
+        ha.is_active = 0
+        AND (ph.id IS NULL OR ph.status <> 'repair')
+      )`);
+    }
 
     if (search) {
       where.push(`(
@@ -569,17 +585,22 @@ export const getTempReplacements = async (req, res) => {
 
          p.name AS process_name,
 
+         parent.id AS permanent_assignment_id,
+         parent.is_active AS permanent_assignment_is_active,
+         parent.return_date AS permanent_return_date,
+
          parent.headset_id AS original_headset_id,
          ph.headset_number AS original_headset_number,
          ph.headset_type AS original_headset_type,
          ph.status AS original_headset_status,
+         ph.condition_status AS original_headset_condition,
 
          parent.hold_status AS original_hold_status,
          parent.hold_started_at,
          parent.hold_ended_at,
 
-         -- ✅ scoped to CURRENT replacement cycle (after hold started)
          rli_latest.received_at AS original_repair_received_at,
+         rli_latest.condition_after AS original_repair_condition_after,
          rl_latest.lot_code AS original_repair_lot_code,
          rl_latest.status AS original_repair_lot_status,
 
@@ -588,7 +609,15 @@ export const getTempReplacements = async (req, res) => {
             AND ha.parent_assignment_id IS NOT NULL
             AND rli_latest.received_at IS NOT NULL
            THEN 1 ELSE 0
-         END AS ready_for_rehandover
+         END AS ready_for_rehandover,
+
+         CASE
+           WHEN ha.is_active = 0
+            AND ph.id IS NOT NULL
+            AND ph.status = 'repair'
+            AND rli_latest.received_at IS NOT NULL
+           THEN 1 ELSE 0
+         END AS ready_for_inventory_return
 
        FROM headset_assignments ha
        JOIN agents a ON a.id = ha.agent_id
@@ -602,10 +631,6 @@ export const getTempReplacements = async (req, res) => {
          SELECT rli1.*
          FROM repair_lot_items rli1
          JOIN (
-           -- pick the latest repair_lot_item for a headset, but ONLY after hold_started_at
-           -- we do this by joining to headset_assignments parent (per row) in the OUTER join condition
-           -- so this subquery stays generic (latest per headset overall),
-           -- and outer join filters it down to current cycle.
            SELECT headset_id, MAX(id) AS max_id
            FROM repair_lot_items
            GROUP BY headset_id
@@ -627,10 +652,12 @@ export const getTempReplacements = async (req, res) => {
 
     const data = rows.map((r) => {
       const readyForRehandover = Number(r.ready_for_rehandover) === 1;
+      const readyForInventoryReturn = Number(r.ready_for_inventory_return) === 1;
 
       return {
         tempAssignmentId: r.temp_assignment_id,
         parentAssignmentId: r.parent_assignment_id,
+        permanentAssignmentId: r.permanent_assignment_id,
 
         agent: {
           agentId: r.agent_id,
@@ -657,6 +684,7 @@ export const getTempReplacements = async (req, res) => {
               number: r.original_headset_number,
               type: r.original_headset_type,
               status: r.original_headset_status,
+              condition: r.original_headset_condition,
             }
           : null,
 
@@ -668,11 +696,16 @@ export const getTempReplacements = async (req, res) => {
 
         originalRepair: {
           receivedAt: r.original_repair_received_at || null,
+          conditionAfter: r.original_repair_condition_after || null,
           lotCode: r.original_repair_lot_code || null,
           lotStatus: r.original_repair_lot_status || null,
         },
 
         readyForRehandover,
+        readyForInventoryReturn,
+
+        permanentAssignmentClosed:
+          Number(r.permanent_assignment_is_active) === 0 || !!r.permanent_return_date,
 
         assignmentDate: r.assignment_date,
         returnDate: r.return_date,
@@ -686,6 +719,139 @@ export const getTempReplacements = async (req, res) => {
   } catch (e) {
     console.error('❌ getTempReplacements:', e);
     return res.status(500).json(errorResponse('Failed to fetch temp replacements'));
+  }
+};
+
+export const returnOriginalRepairedHeadsetToInventory = async (req, res) => {
+  try {
+    const { parent_assignment_id, condition_after = null, notes = null } = req.body || {};
+    const parentAssignmentId = Number(parent_assignment_id);
+
+    if (!parentAssignmentId) {
+      return res.status(400).json(errorResponse('parent_assignment_id is required'));
+    }
+
+    const conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    try {
+      const [permRows] = await conn.query(
+        `SELECT
+           ha.id,
+           ha.agent_id,
+           ha.headset_id,
+           ha.assignment_kind,
+           ha.is_active,
+           ha.return_date,
+           h.headset_number,
+           h.status AS headset_status,
+           h.condition_status
+         FROM headset_assignments ha
+         JOIN headsets h ON h.id = ha.headset_id
+         WHERE ha.id = ?
+           AND ha.assignment_kind = 'permanent'
+         LIMIT 1`,
+        [parentAssignmentId]
+      );
+
+      if (!permRows.length) {
+        await conn.rollback();
+        conn.release();
+        return res.status(404).json(errorResponse('Permanent assignment not found'));
+      }
+
+      const perm = permRows[0];
+
+      const [tempRows] = await conn.query(
+        `SELECT id, is_active, return_date
+         FROM headset_assignments
+         WHERE parent_assignment_id = ?
+           AND assignment_kind = 'temp_replacement'
+         ORDER BY id DESC
+         LIMIT 1`,
+        [parentAssignmentId]
+      );
+
+      const temp = tempRows?.[0] || null;
+      if (temp && Number(temp.is_active) === 1) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json(errorResponse('Cannot return original to inventory while temp replacement is still active'));
+      }
+
+      const [repairRows] = await conn.query(
+        `SELECT
+           rli.received_at,
+           rli.condition_after,
+           rl.lot_code,
+           rl.status AS lot_status
+         FROM repair_lot_items rli
+         JOIN repair_lots rl ON rl.id = rli.lot_id
+         WHERE rli.headset_id = ?
+         ORDER BY rli.id DESC
+         LIMIT 1`,
+        [perm.headset_id]
+      );
+
+      const repair = repairRows?.[0] || null;
+
+      if (!repair || !repair.received_at) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json(errorResponse('Original headset is not received from repair lot yet'));
+      }
+
+      const finalCondition = String(condition_after || repair.condition_after || perm.condition_status || 'good')
+        .trim()
+        .toLowerCase();
+
+      if (!['brand_new', 'good', 'fair', 'damaged', 'lost'].includes(finalCondition)) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json(errorResponse('Invalid condition_after'));
+      }
+
+      await conn.query(
+        `UPDATE headsets
+         SET status = 'available',
+             condition_status = ?,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [finalCondition, perm.headset_id]
+      );
+
+      if (notes) {
+        await conn.query(
+          `UPDATE headset_assignments
+           SET notes = CONCAT(IFNULL(notes,''), ?),
+               updated_at = NOW()
+           WHERE id = ?`,
+          [` | Original returned to inventory after repair. ${notes}`, parentAssignmentId]
+        );
+      }
+
+      await conn.commit();
+      conn.release();
+
+      return res.json(
+        successResponse(
+          {
+            parentAssignmentId,
+            headsetId: perm.headset_id,
+            headsetNumber: perm.headset_number,
+            conditionAfter: finalCondition,
+          },
+          'Original repaired headset returned to inventory'
+        )
+      );
+    } catch (e) {
+      await conn.rollback();
+      conn.release();
+      throw e;
+    }
+  } catch (e) {
+    console.error('❌ returnOriginalRepairedHeadsetToInventory:', e);
+    return res.status(500).json(errorResponse('Failed to return original repaired headset to inventory'));
   }
 };
 
@@ -1374,4 +1540,5 @@ export default {
   rehandoverRepairedHeadset,
   getTempReplacements,
   closeReplacementAgentExit,
+  returnOriginalRepairedHeadsetToInventory,
 };

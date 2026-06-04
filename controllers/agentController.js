@@ -94,65 +94,112 @@ export const getAllAgents = async (req, res) => {
     const whereClause = whereConditions.join(' AND ');
 
     // Get total count
-    const [countResult] = await db.query(
-      `SELECT COUNT(DISTINCT a.id) as total
-       FROM agents a
-       JOIN users u ON a.user_id = u.id
-       LEFT JOIN headset_assignments ha ON a.id = ha.agent_id AND ha.is_active = 1
-       WHERE ${whereClause}`,
-      params
-    );
-
+	const [countResult] = await db.query(
+	  `SELECT COUNT(DISTINCT a.id) as total
+	   FROM agents a
+	   JOIN users u ON a.user_id = u.id
+	   LEFT JOIN (
+	     SELECT
+	       agent_id,
+	       MAX(CASE WHEN assignment_kind = 'temp_replacement' AND is_active = 1 THEN 1 ELSE 0 END) AS has_temp_replacement,
+	       MAX(CASE WHEN assignment_kind = 'permanent' AND is_active = 1 AND hold_status = 'on_hold' THEN 1 ELSE 0 END) AS has_permanent_on_hold,
+	       MAX(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS has_any_active
+	     FROM headset_assignments
+	     GROUP BY agent_id
+	   ) ha_state ON ha_state.agent_id = a.id
+	   WHERE ${whereClause.replace(/ha\.id IS NOT NULL/g, 'COALESCE(ha_state.has_any_active, 0) = 1').replace(/ha\.id IS NULL/g, 'COALESCE(ha_state.has_any_active, 0) = 0')}`,
+	  params
+	);
     const total = countResult?.[0]?.total ?? 0;
 
     // Get agents
-    const [agents] = await db.query(
-      `SELECT 
-        a.id as agent_id,
-        a.status as agent_status,
-        a.training_start_date,
-        a.training_end_date,
-        a.ojt_start_date,
-        a.ojt_end_date,
-        a.floor_join_date,
-        a.resignation_date,
+	const [agents] = await db.query(
+	  `SELECT 
+	    a.id as agent_id,
+	    a.status as agent_status,
+	    a.training_start_date,
+	    a.training_end_date,
+	    a.ojt_start_date,
+	    a.ojt_end_date,
+	    a.floor_join_date,
+	    a.resignation_date,
 
-        u.id as user_id,
-        u.employee_id,
-        u.temp_employee_id,
-        u.name,
-        u.email,
-        u.phone,
-        u.role,
-        u.is_active as user_is_active,
-        u.permanent_id_pending,
-        u.joining_date,
+	    u.id as user_id,
+	    u.employee_id,
+	    u.temp_employee_id,
+	    u.name,
+	    u.email,
+	    u.phone,
+	    u.role,
+	    u.is_active as user_is_active,
+	    u.permanent_id_pending,
+	    u.joining_date,
 
-        p.id as process_id,
-        p.name as process_name,
-        p.category as process_category,
+	    p.id as process_id,
+	    p.name as process_name,
+	    p.category as process_category,
 
-        mgr.name as manager_name,
-        tl.name as tl_name,
-        trainer.name as trainer_name,
+	    mgr.name as manager_name,
+	    tl.name as tl_name,
+	    trainer.name as trainer_name,
 
-        ha.id as assignment_id,
-        h.headset_number,
-        h.headset_type
+	    ah.assignment_id,
+	    ah.assignment_kind,
+	    ah.hold_status,
+	    ah.headset_number,
+	    ah.headset_type,
 
-       FROM agents a
-       JOIN users u ON a.user_id = u.id
-       LEFT JOIN processes p ON a.process_id = p.id
-       LEFT JOIN users mgr ON a.manager_id = mgr.id
-       LEFT JOIN users tl ON a.tl_id = tl.id
-       LEFT JOIN users trainer ON a.trainer_id = trainer.id
-       LEFT JOIN headset_assignments ha ON a.id = ha.agent_id AND ha.is_active = 1
-       LEFT JOIN headsets h ON ha.headset_id = h.id
-       WHERE ${whereClause}
-       ORDER BY u.${sortColumn} ${sortDir}
-       LIMIT ? OFFSET ?`,
-      [...params, limitNum, offset]
-    );
+	    COALESCE(ha_state.has_temp_replacement, 0) as has_temp_replacement,
+	    COALESCE(ha_state.has_permanent_on_hold, 0) as has_permanent_on_hold
+
+	   FROM agents a
+	   JOIN users u ON a.user_id = u.id
+	   LEFT JOIN processes p ON a.process_id = p.id
+	   LEFT JOIN users mgr ON a.manager_id = mgr.id
+	   LEFT JOIN users tl ON a.tl_id = tl.id
+	   LEFT JOIN users trainer ON a.trainer_id = trainer.id
+
+	   LEFT JOIN (
+	     SELECT
+	       x.agent_id,
+	       x.id as assignment_id,
+	       x.assignment_kind,
+	       x.hold_status,
+	       h.headset_number,
+	       h.headset_type
+	     FROM headset_assignments x
+	     JOIN headsets h ON h.id = x.headset_id
+	     JOIN (
+	       SELECT
+	         agent_id,
+	         COALESCE(
+	           MAX(CASE WHEN assignment_kind = 'temp_replacement' AND is_active = 1 THEN id END),
+	           MAX(CASE WHEN assignment_kind = 'permanent' AND is_active = 1 THEN id END)
+	         ) as picked_assignment_id
+	       FROM headset_assignments
+	       GROUP BY agent_id
+	     ) pick ON pick.picked_assignment_id = x.id
+	   ) ah ON ah.agent_id = a.id
+
+	   LEFT JOIN (
+	     SELECT
+	       agent_id,
+	       MAX(CASE WHEN assignment_kind = 'temp_replacement' AND is_active = 1 THEN 1 ELSE 0 END) AS has_temp_replacement,
+	       MAX(CASE WHEN assignment_kind = 'permanent' AND is_active = 1 AND hold_status = 'on_hold' THEN 1 ELSE 0 END) AS has_permanent_on_hold,
+	       MAX(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS has_any_active
+	     FROM headset_assignments
+	     GROUP BY agent_id
+	   ) ha_state ON ha_state.agent_id = a.id
+
+	   WHERE ${
+	     whereClause
+	       .replace(/ha\.id IS NOT NULL/g, 'COALESCE(ha_state.has_any_active, 0) = 1')
+	       .replace(/ha\.id IS NULL/g, 'COALESCE(ha_state.has_any_active, 0) = 0')
+	   }
+	   ORDER BY u.${sortColumn} ${sortDir}
+	   LIMIT ? OFFSET ?`,
+	  [...params, limitNum, offset]
+	);
 
     // Format response
     const formattedAgents = agents.map(a => ({
@@ -188,11 +235,17 @@ export const getAllAgents = async (req, res) => {
       teamLeader: a.tl_name,
       trainer: a.trainer_name,
 
-      headset: a.assignment_id ? {
-        assignmentId: a.assignment_id,
-        headsetNumber: a.headset_number,
-        headsetType: a.headset_type
-      } : null
+	  headset: a.assignment_id ? {
+	    assignmentId: a.assignment_id,
+	    headsetNumber: a.headset_number,
+	    headsetType: a.headset_type,
+	    assignmentKind: a.assignment_kind || null,
+	    holdStatus: a.hold_status || null,
+	  } : null,
+
+	  repairReplacementFlow:
+	    Number(a.has_temp_replacement) === 1 &&
+	    Number(a.has_permanent_on_hold) === 1,
     }));
 
     return res.json(paginatedResponse(formattedAgents, total, pageNum, limitNum));
@@ -300,8 +353,9 @@ export const getDeassignFormData = async (req, res) => {
        LEFT JOIN deposits d
          ON d.assignment_id = ha.id
         AND d.deposit_type IN ('voix','tech')
-       WHERE ha.agent_id = ?
-         AND h.headset_type = 'voix_enc'
+		WHERE ha.agent_id = ?
+		  AND h.headset_type = 'voix_enc'
+		  AND COALESCE(ha.assignment_kind, 'permanent') = 'permanent'
        ORDER BY ha.assignment_date ASC
        LIMIT 1`,
       [id]
@@ -1146,8 +1200,9 @@ export const deassignAgent = async (req, res) => {
        JOIN headsets h ON h.id = ha.headset_id
        LEFT JOIN headset_type_tiers ht
          ON ht.headset_type = h.headset_type AND ht.is_active = 1
-       WHERE ha.agent_id = ?
-         AND h.headset_type = 'voix_enc'
+		 WHERE ha.agent_id = ?
+		   AND h.headset_type = 'voix_enc'
+		   AND COALESCE(ha.assignment_kind, 'permanent') = 'permanent'
        ORDER BY ha.assignment_date ASC
        LIMIT 1`,
       [id]

@@ -13,7 +13,8 @@ import {
   startRepairReplacement,
   rehandoverRepairedHeadset,
   getTempReplacements,
-  closeReplacementAgentExit, // ✅ NEW
+  closeReplacementAgentExit,
+  returnOriginalRepairedHeadsetToInventory // ✅ NEW
 } from '../controllers/repairController.js';
 
 const router = express.Router();
@@ -25,6 +26,8 @@ router.use(requireAdmin);
 router.post('/lots', createRepairLot);
 router.get('/lots', listRepairLots);
 router.get('/lots/:id', getRepairLotById);
+
+router.post('/return-original-to-inventory', verifySession, requireAdmin, returnOriginalRepairedHeadsetToInventory);
 
 // Temp replacements listing
 router.get('/replacements', getTempReplacements);

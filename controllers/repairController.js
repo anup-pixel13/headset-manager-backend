@@ -513,24 +513,11 @@ export const getTempReplacements = async (req, res) => {
 
     const wantActive = String(status).toLowerCase() !== 'inactive';
 
-    const where = [`ha.assignment_kind = 'temp_replacement'`];
+    const where = [
+      `ha.assignment_kind = 'temp_replacement'`,
+      wantActive ? `ha.is_active = 1` : `ha.is_active = 0`,
+    ];
     const params = [];
-
-    if (wantActive) {
-      where.push(`(
-        ha.is_active = 1
-        OR (
-          ha.is_active = 0
-          AND ph.id IS NOT NULL
-          AND ph.status = 'repair'
-        )
-      )`);
-    } else {
-      where.push(`(
-        ha.is_active = 0
-        AND (ph.id IS NULL OR ph.status <> 'repair')
-      )`);
-    }
 
     if (search) {
       where.push(`(
@@ -545,6 +532,7 @@ export const getTempReplacements = async (req, res) => {
     }
 
     const whereSql = where.join(' AND ');
+    const sortDir = String(sort_order).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     const [countRows] = await db.query(
       `SELECT COUNT(*) AS total
@@ -559,7 +547,6 @@ export const getTempReplacements = async (req, res) => {
     );
 
     const total = countRows?.[0]?.total ?? 0;
-    const sortDir = String(sort_order).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     const [rows] = await db.query(
       `SELECT
@@ -578,6 +565,7 @@ export const getTempReplacements = async (req, res) => {
          u.name AS agent_name,
          u.employee_id,
          u.temp_employee_id,
+         u.is_active AS user_is_active,
 
          h.headset_number AS temp_headset_number,
          h.headset_type AS temp_headset_type,
@@ -585,22 +573,16 @@ export const getTempReplacements = async (req, res) => {
 
          p.name AS process_name,
 
-         parent.id AS permanent_assignment_id,
-         parent.is_active AS permanent_assignment_is_active,
-         parent.return_date AS permanent_return_date,
-
          parent.headset_id AS original_headset_id,
          ph.headset_number AS original_headset_number,
          ph.headset_type AS original_headset_type,
          ph.status AS original_headset_status,
-         ph.condition_status AS original_headset_condition,
 
          parent.hold_status AS original_hold_status,
          parent.hold_started_at,
          parent.hold_ended_at,
 
          rli_latest.received_at AS original_repair_received_at,
-         rli_latest.condition_after AS original_repair_condition_after,
          rl_latest.lot_code AS original_repair_lot_code,
          rl_latest.status AS original_repair_lot_status,
 
@@ -609,15 +591,7 @@ export const getTempReplacements = async (req, res) => {
             AND ha.parent_assignment_id IS NOT NULL
             AND rli_latest.received_at IS NOT NULL
            THEN 1 ELSE 0
-         END AS ready_for_rehandover,
-
-         CASE
-           WHEN ha.is_active = 0
-            AND ph.id IS NOT NULL
-            AND ph.status = 'repair'
-            AND rli_latest.received_at IS NOT NULL
-           THEN 1 ELSE 0
-         END AS ready_for_inventory_return
+         END AS ready_for_rehandover
 
        FROM headset_assignments ha
        JOIN agents a ON a.id = ha.agent_id
@@ -652,18 +626,17 @@ export const getTempReplacements = async (req, res) => {
 
     const data = rows.map((r) => {
       const readyForRehandover = Number(r.ready_for_rehandover) === 1;
-      const readyForInventoryReturn = Number(r.ready_for_inventory_return) === 1;
 
       return {
         tempAssignmentId: r.temp_assignment_id,
         parentAssignmentId: r.parent_assignment_id,
-        permanentAssignmentId: r.permanent_assignment_id,
 
         agent: {
           agentId: r.agent_id,
           userId: r.user_id,
           name: r.agent_name,
           employeeId: r.employee_id || r.temp_employee_id || null,
+          userIsActive: Number(r.user_is_active) === 1,
         },
 
         process: {
@@ -684,7 +657,6 @@ export const getTempReplacements = async (req, res) => {
               number: r.original_headset_number,
               type: r.original_headset_type,
               status: r.original_headset_status,
-              condition: r.original_headset_condition,
             }
           : null,
 
@@ -696,17 +668,11 @@ export const getTempReplacements = async (req, res) => {
 
         originalRepair: {
           receivedAt: r.original_repair_received_at || null,
-          conditionAfter: r.original_repair_condition_after || null,
           lotCode: r.original_repair_lot_code || null,
           lotStatus: r.original_repair_lot_status || null,
         },
 
         readyForRehandover,
-        readyForInventoryReturn,
-
-        permanentAssignmentClosed:
-          Number(r.permanent_assignment_is_active) === 0 || !!r.permanent_return_date,
-
         assignmentDate: r.assignment_date,
         returnDate: r.return_date,
         returnCondition: r.return_condition,
@@ -1499,7 +1465,14 @@ export const closeReplacementAgentExit = async (req, res) => {
 	     WHERE id = ?`,
 	    [newAgentStatus, perm.agent_id]
 	  );
-
+	  await conn.query(
+	    `UPDATE users
+	     SET is_active = 0
+	     WHERE id = (
+	       SELECT user_id FROM agents WHERE id = ?
+	     )`,
+	    [perm.agent_id]
+	  );
       await conn.commit();
       conn.release();
 

@@ -14,20 +14,22 @@ const passwordHash = `DISABLED_${crypto.randomBytes(10).toString('hex')}`;
 // ============================================
 export const getAllAgents = async (req, res) => {
   try {
-    const {
-      search,
-      status,              // agents.status lifecycle filter
-      user_is_active,      // users.is_active login filter (true/false/1/0)
-      process_id,
-      manager_id,
-      tl_id,
-      has_headset,
-      pending_employee_id,
-      page = 1,
-      limit = 20,
-      sort_by = 'name',
-      sort_order = 'ASC'
-    } = req.query;
+	const {
+	  search,
+	  status,
+	  user_is_active,
+	  process_id,
+	  manager_id,
+	  tl_id,
+	  has_headset,
+	  pending_employee_id,
+	  created_from,
+	  created_to,
+	  page = 1,
+	  limit = 20,
+	  sort_by = 'name',
+	  sort_order = 'ASC'
+	} = req.query;
 
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = Math.min(parseInt(limit, 10) || 20, 100);
@@ -83,6 +85,16 @@ export const getAllAgents = async (req, res) => {
     if (pending_employee_id === 'true') {
       whereConditions.push('u.permanent_id_pending = 1');
     }
+	
+	if (created_from) {
+	  whereConditions.push('DATE(u.joining_date) >= ?');
+	  params.push(created_from);
+	}
+
+	if (created_to) {
+	  whereConditions.push('DATE(u.joining_date) <= ?');
+	  params.push(created_to);
+	}
 
     // Filter by has_headset
     if (has_headset === 'true') {

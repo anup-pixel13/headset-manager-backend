@@ -8,6 +8,7 @@ import {
   validateHeadsetNumberForType,
   sanitizeString
 } from '../utils/helpers.js';
+
 // ============================================
 // GET ALL HEADSETS (with filters & pagination)
 // ============================================
@@ -103,10 +104,10 @@ export const getAllHeadsets = async (req, res) => {
         ht.deposit_amount AS tier_deposit_amount,
         ht.refund_amount  AS tier_refund_amount,
 
-		ha.id as assignment_id,
-		ha.assignment_date,
-		ha.assignment_kind as assignment_kind,
-		
+        ha.id as assignment_id,
+        ha.assignment_date,
+        ha.assignment_kind as assignment_kind,
+        
         u.id as agent_user_id,
         u.name as assigned_to_name,
         u.employee_id as assigned_to_emp_id,
@@ -116,7 +117,6 @@ export const getAllHeadsets = async (req, res) => {
        FROM headsets h
        LEFT JOIN headset_brands hb ON h.brand_id = hb.id
 
-       -- ✅ tier join (for correct deposit/refund)
        LEFT JOIN headset_type_tiers ht
          ON ht.headset_type = h.headset_type AND ht.is_active = 1
 
@@ -142,33 +142,28 @@ export const getAllHeadsets = async (req, res) => {
       images: [h.image_url_1, h.image_url_2].filter(Boolean),
       notes: h.notes,
 
-      // brand display only
       brand: {
         name: h.brand_name,
       },
 
-      // ✅ tier amounts used everywhere
       tier: {
         depositAmount: h.tier_deposit_amount ?? 0,
         refundAmount: h.tier_refund_amount ?? 0,
       },
 
-	  assignment: h.assignment_id
-	    ? {
-	        id: h.assignment_id,
-	        assignmentDate: h.assignment_date,
-
-	        // ✅ NEW: used by Inventory card to show TEMP/PERM badge
-	        assignmentKind: h.assignment_kind,
-
-	        agent: {
-	          id: h.agent_user_id,
-	          name: h.assigned_to_name,
-	          employeeId: h.assigned_to_emp_id || h.assigned_to_temp_id,
-	        },
-	        process: h.process_name,
-	      }
-	    : null,
+      assignment: h.assignment_id
+        ? {
+            id: h.assignment_id,
+            assignmentDate: h.assignment_date,
+            assignmentKind: h.assignment_kind,
+            agent: {
+              id: h.agent_user_id,
+              name: h.assigned_to_name,
+              employeeId: h.assigned_to_emp_id || h.assigned_to_temp_id,
+            },
+            process: h.process_name,
+          }
+        : null,
 
       createdAt: h.created_at,
       updatedAt: h.updated_at,
@@ -180,6 +175,10 @@ export const getAllHeadsets = async (req, res) => {
     res.status(500).json(errorResponse('Failed to fetch headsets'));
   }
 };
+
+// ============================================
+// GET HEADSET ASSIGNMENT HISTORY
+// ============================================
 export const getHeadsetAssignments = async (req, res) => {
   try {
     const headsetId = Number(req.params.id);
@@ -195,14 +194,17 @@ export const getHeadsetAssignments = async (req, res) => {
         ha.return_date,
         ha.return_condition,
         ha.notes,
+
         ha.hold_status,
         ha.hold_reason,
         ha.hold_started_at,
         ha.hold_ended_at,
+
         a.id AS agent_id,
         u.id AS user_id,
         u.name AS agent_name,
         COALESCE(u.employee_id, u.temp_employee_id) AS employee_id,
+
         p.id AS process_id,
         p.name AS process_name
       FROM headset_assignments ha
@@ -217,11 +219,11 @@ export const getHeadsetAssignments = async (req, res) => {
 
     const data = rows.map((r) => ({
       id: r.id,
-      assignmentKind: r.assignment_kind,
+      assignmentKind: r.assignment_kind || null,
       isActive: Number(r.is_active) === 1,
-      assignmentDate: r.assignment_date,
-      returnDate: r.return_date,
-      returnCondition: r.return_condition,
+      assignmentDate: r.assignment_date || null,
+      returnDate: r.return_date || null,
+      returnCondition: r.return_condition || null,
       notes: r.notes || null,
       hold: {
         status: r.hold_status || null,
@@ -232,22 +234,16 @@ export const getHeadsetAssignments = async (req, res) => {
       agent: {
         agentId: r.agent_id,
         userId: r.user_id,
-        name: r.agent_name,
+        name: r.agent_name || null,
         employeeId: r.employee_id || null,
       },
-      process: r.process_id ? { id: r.process_id, name: r.process_name } : null,
+      process: r.process_id
+        ? {
+            id: r.process_id,
+            name: r.process_name,
+          }
+        : null,
     }));
-
-    return res.json(successResponse({
-      source: 'getHeadsetAssignments',
-      headsetId,
-      assignments: data,
-    }));
-  } catch (e) {
-    console.error('❌ getHeadsetAssignments:', e);
-    return res.status(500).json(errorResponse('Failed to fetch headset assignments'));
-  }
-};
 
     return res.json(successResponse({ headsetId, assignments: data }));
   } catch (e) {
@@ -256,7 +252,9 @@ export const getHeadsetAssignments = async (req, res) => {
   }
 };
 
-
+// ============================================
+// GET HEADSET REPAIR HISTORY
+// ============================================
 export const getHeadsetRepairs = async (req, res) => {
   try {
     const headsetId = Number(req.params.id);
@@ -310,17 +308,19 @@ export const getHeadsetRepairs = async (req, res) => {
       conditionAfter: r.condition_after || null,
       receiveNotes: r.receive_notes || null,
       addedAt: r.added_at || null,
+
+      // compatibility fields
       sentAt: r.sent_at || null,
       receivedAt: r.received_at || null,
-      receivedBy: r.received_by_user_id ? { id: r.received_by_user_id, name: r.received_by_name } : null,
+      itemSentAt: r.sent_at || null,
+      itemReceivedAt: r.received_at || null,
+
+      receivedBy: r.received_by_user_id
+        ? { id: r.received_by_user_id, name: r.received_by_name }
+        : null,
     }));
 
-	return res.json(successResponse({
-	  source: 'getHeadsetRepairs',
-	  headsetId,
-	  repairs: data,
-	}));
-	
+    return res.json(successResponse({ headsetId, repairs: data }));
   } catch (e) {
     console.error('❌ getHeadsetRepairs:', e);
     return res.status(500).json(errorResponse('Failed to fetch headset repairs'));
@@ -334,14 +334,11 @@ export const getHeadsetById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // ✅ Use headset_type_tiers for deposit/refund (tier), not brand
     const [headsets] = await db.query(
       `SELECT 
         h.*,
-
         hb.brand_name,
         hb.description as brand_description,
-
         ht.deposit_amount AS tier_deposit_amount,
         ht.refund_amount  AS tier_refund_amount
        FROM headsets h
@@ -361,7 +358,6 @@ export const getHeadsetById = async (req, res) => {
 
     const headset = headsets[0];
 
-    // Get current assignment if any
     const [assignments] = await db.query(
       `SELECT 
         ha.*,
@@ -385,7 +381,6 @@ export const getHeadsetById = async (req, res) => {
       [id]
     );
 
-    // Get assignment history
     const [history] = await db.query(
       `SELECT 
         ha.id,
@@ -406,21 +401,6 @@ export const getHeadsetById = async (req, res) => {
       [id]
     );
 
-    // Get repair history
-/*    const [repairs] = await db.query(
-      `SELECT 
-        r.*,
-        reported_by_user.name as reported_by_name,
-        received_by_user.name as received_by_name
-       FROM repairs r
-       LEFT JOIN users reported_by_user ON r.reported_by = reported_by_user.id
-       LEFT JOIN users received_by_user ON r.received_by = received_by_user.id
-       WHERE r.headset_id = ?
-       ORDER BY r.sent_for_repair_date DESC
-       LIMIT 10`,
-      [id]
-    );*/
-
     return res.json(
       successResponse({
         id: headset.id,
@@ -432,19 +412,15 @@ export const getHeadsetById = async (req, res) => {
         purchaseDate: headset.purchase_date,
         warrantyExpiry: headset.warranty_expiry,
         images: [headset.image_url_1, headset.image_url_2].filter(Boolean),
-		// ✅ FIX: guard against no active assignment (was crashing with
-		// "Cannot read properties of undefined (reading 'assignment_kind')")
-		assignmentKind: assignments[0]?.assignment_kind ?? null,
+        assignmentKind: assignments[0]?.assignment_kind ?? null,
         notes: headset.notes,
 
-        // ✅ Brand is for display only
         brand: {
           id: headset.brand_id,
           name: headset.brand_name,
           description: headset.brand_description,
         },
 
-        // ✅ Tier amounts (correct for VOIX non-ENC too)
         tier: {
           depositAmount: headset.tier_deposit_amount ?? 0,
           refundAmount: headset.tier_refund_amount ?? 0,
@@ -455,7 +431,7 @@ export const getHeadsetById = async (req, res) => {
             ? {
                 id: assignments[0].id,
                 assignmentDate: assignments[0].assignment_date,
-				assignmentKind: assignments[0].assignment_kind || null,
+                assignmentKind: assignments[0].assignment_kind || null,
                 isVerified: assignments[0].is_verified === 1,
                 verificationDate: assignments[0].verification_date,
                 agent: {
@@ -484,19 +460,6 @@ export const getHeadsetById = async (req, res) => {
           isVerified: h.is_verified === 1,
         })),
 
-  /*      repairHistory: repairs.map((r) => ({
-          id: r.id,
-          issueType: r.issue_type,
-          issueDescription: r.issue_description,
-          sentDate: r.sent_for_repair_date,
-          returnDate: r.actual_return_date,
-          status: r.repair_status,
-          cost: r.repair_cost,
-          vendor: r.repair_vendor,
-          reportedBy: r.reported_by_name,
-          receivedBy: r.received_by_name,
-        })),
-*/
         createdAt: headset.created_at,
         updatedAt: headset.updated_at,
       })
@@ -507,9 +470,9 @@ export const getHeadsetById = async (req, res) => {
   }
 };
 
-
-
+// ============================================
 // POST /api/headsets/:id/mark-damaged
+// ============================================
 export const markHeadsetDamaged = async (req, res) => {
   try {
     const headsetId = Number(req.params.id);
@@ -528,7 +491,6 @@ export const markHeadsetDamaged = async (req, res) => {
         return res.status(404).json(errorResponse('Headset not found'));
       }
 
-      // Mark damaged so it appears in Repairs search (no auto lot creation)
       await conn.query(
         `UPDATE headsets
          SET status = 'damaged',
@@ -538,7 +500,6 @@ export const markHeadsetDamaged = async (req, res) => {
         [headsetId]
       );
 
-      // Optional audit note: append to latest active assignment notes (if exists) but DO NOT close assignment
       if (remarks) {
         await conn.query(
           `UPDATE headset_assignments
@@ -566,8 +527,9 @@ export const markHeadsetDamaged = async (req, res) => {
   }
 };
 
+// ============================================
 // POST /api/headsets/:id/mark-lost
-// Requirement: close active assignment with remark/differentiator
+// ============================================
 export const markHeadsetLost = async (req, res) => {
   try {
     const headsetId = Number(req.params.id);
@@ -586,7 +548,6 @@ export const markHeadsetLost = async (req, res) => {
         return res.status(404).json(errorResponse('Headset not found'));
       }
 
-      // 1) Close any active assignment for this headset (if exists)
       const closeNote = remarks ? ` | Inventory: marked lost. ${remarks}` : ' | Inventory: marked lost.';
       await conn.query(
         `UPDATE headset_assignments
@@ -600,7 +561,6 @@ export const markHeadsetLost = async (req, res) => {
         [closeNote, headsetId]
       );
 
-      // 2) Mark headset lost
       await conn.query(
         `UPDATE headsets
          SET status = 'lost',
@@ -624,8 +584,9 @@ export const markHeadsetLost = async (req, res) => {
   }
 };
 
+// ============================================
 // POST /api/headsets/:id/retire
-// Only allowed if headset has no active assignment
+// ============================================
 export const retireHeadset = async (req, res) => {
   try {
     const headsetId = Number(req.params.id);
@@ -667,12 +628,6 @@ export const retireHeadset = async (req, res) => {
         [headsetId]
       );
 
-      // Optional: store remarks somewhere if you have a notes column on headsets
-      // If you do: UPDATE headsets SET notes = CONCAT(IFNULL(notes,''), ?) ...
-      if (remarks) {
-        // no-op unless you want to add a headset_notes table
-      }
-
       await conn.commit();
       conn.release();
       return res.json(successResponse({ headsetId }, 'Headset retired'));
@@ -686,12 +641,12 @@ export const retireHeadset = async (req, res) => {
     return res.status(500).json(errorResponse('Failed to retire headset'));
   }
 };
+
 // ============================================
-// ADD NEW HEADSET (SAFE VERSION)
+// ADD NEW HEADSET
 // ============================================
 export const addHeadset = async (req, res) => {
   try {
-    // For multipart/form-data, text fields come in req.body and files in req.files
     const headset_number = req.body?.headset_number;
     const brand_id = req.body?.brand_id;
     const headset_type = req.body?.headset_type;
@@ -700,17 +655,16 @@ export const addHeadset = async (req, res) => {
     const warranty_expiry = req.body?.warranty_expiry || null;
     const notes = req.body?.notes || null;
 
-    // ✅ Require 2 images
     const file1 = req.files?.image1?.[0];
     const file2 = req.files?.image2?.[0];
-	
-	const allowedTypes = ['voix_enc', 'voix_2xx', 'voix_3xx', 'voix_nxx', 'voix_xxx', 'tech', 'ojt', 'yjack'];
-	if (!allowedTypes.includes(headset_type)) {
-	  return res.status(400).json({
-	    success: false,
-	    message: `Invalid headset_type. Allowed: ${allowedTypes.join(', ')}`
-	  });
-	}
+
+    const allowedTypes = ['voix_enc', 'voix_2xx', 'voix_3xx', 'voix_nxx', 'voix_xxx', 'tech', 'ojt', 'yjack'];
+    if (!allowedTypes.includes(headset_type)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid headset_type. Allowed: ${allowedTypes.join(', ')}`
+      });
+    }
 
     if (!file1 || !file2) {
       return res.status(400).json({
@@ -719,7 +673,6 @@ export const addHeadset = async (req, res) => {
       });
     }
 
-    // Validation
     if (!headset_number || !brand_id || !headset_type) {
       return res.status(400).json({
         success: false,
@@ -728,13 +681,12 @@ export const addHeadset = async (req, res) => {
       });
     }
 
-	const v = validateHeadsetNumberForType(headset_number, headset_type);
-	if (!v.ok) {
-	  return res.status(400).json({ success: false, message: v.reason });
-	}
-	const cleanHeadsetNumber = v.normalized;
+    const v = validateHeadsetNumberForType(headset_number, headset_type);
+    if (!v.ok) {
+      return res.status(400).json({ success: false, message: v.reason });
+    }
+    const cleanHeadsetNumber = v.normalized;
 
-    // Check if exists
     const [existing] = await db.query(
       'SELECT id FROM headsets WHERE headset_number = ?',
       [cleanHeadsetNumber]
@@ -747,26 +699,9 @@ export const addHeadset = async (req, res) => {
       });
     }
 
-    // ✅ Save image URLs (served via /uploads static)
-    // file.filename is stored in uploads/headset-images
     const image_url_1 = `/uploads/headset-images/${file1.filename}`;
     const image_url_2 = `/uploads/headset-images/${file2.filename}`;
-	console.log('image1 meta:', file1 && {
-	  originalname: file1.originalname,
-	  mimetype: file1.mimetype,
-	  filename: file1.filename,
-	  size: file1.size,
-	  path: file1.path,
-	});
 
-	console.log('image2 meta:', file2 && {
-	  originalname: file2.originalname,
-	  mimetype: file2.mimetype,
-	  filename: file2.filename,
-	  size: file2.size,
-	  path: file2.path,
-	});
-    // Insert
     const [result] = await db.query(
       `INSERT INTO headsets (
         headset_number, brand_id, headset_type, status, condition_status,
@@ -795,7 +730,6 @@ export const addHeadset = async (req, res) => {
         images: [image_url_1, image_url_2]
       }
     });
-
   } catch (error) {
     console.error('❌ Add headset error:', error.message);
     console.error('❌ Stack:', error.stack);
@@ -806,6 +740,7 @@ export const addHeadset = async (req, res) => {
     });
   }
 };
+
 // ============================================
 // UPDATE HEADSET
 // ============================================
@@ -826,7 +761,6 @@ export const updateHeadset = async (req, res) => {
       notes
     } = req.body;
 
-    // Check if headset exists
     const [existing] = await db.query('SELECT * FROM headsets WHERE id = ?', [id]);
 
     if (existing.length === 0) {
@@ -834,14 +768,13 @@ export const updateHeadset = async (req, res) => {
     }
 
     const oldData = existing[0];
-	
-	const finalType = headset_type !== undefined ? headset_type : oldData.headset_type;
-	const finalNumber = headset_number !== undefined ? headset_number : oldData.headset_number;
 
-	const v = validateHeadsetNumberForType(finalNumber, finalType);
-	if (!v.ok) return res.status(400).json(errorResponse(v.reason));
+    const finalType = headset_type !== undefined ? headset_type : oldData.headset_type;
+    const finalNumber = headset_number !== undefined ? headset_number : oldData.headset_number;
 
-    // If changing headset number, check for duplicates
+    const v = validateHeadsetNumberForType(finalNumber, finalType);
+    if (!v.ok) return res.status(400).json(errorResponse(v.reason));
+
     if (headset_number && headset_number !== oldData.headset_number) {
       const [duplicate] = await db.query(
         'SELECT id FROM headsets WHERE headset_number = ? AND id != ?',
@@ -852,14 +785,13 @@ export const updateHeadset = async (req, res) => {
       }
     }
 
-    // Build update query dynamically
     const updates = [];
     const values = [];
 
-	if (headset_number !== undefined) {
-	  updates.push('headset_number = ?');
-	  values.push(v.normalized);
-	}
+    if (headset_number !== undefined) {
+      updates.push('headset_number = ?');
+      values.push(v.normalized);
+    }
     if (brand_id !== undefined) {
       updates.push('brand_id = ?');
       values.push(brand_id);
@@ -913,7 +845,6 @@ export const updateHeadset = async (req, res) => {
       values
     );
 
-    // Audit log
     await db.query(
       `INSERT INTO audit_logs (user_id, action_type, entity_type, entity_id, old_values, new_values, action_timestamp)
        VALUES (?, 'headset_updated', 'headsets', ?, ?, ?, NOW())`,
@@ -928,7 +859,6 @@ export const updateHeadset = async (req, res) => {
     console.log(`✅ Headset updated: ID ${id} by ${req.user.name}`);
 
     res.json(successResponse({ id: parseInt(id) }, 'Headset updated successfully'));
-
   } catch (error) {
     console.error('❌ Update headset error:', error);
     res.status(500).json(errorResponse('Failed to update headset'));
@@ -942,7 +872,6 @@ export const deleteHeadset = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if headset exists
     const [existing] = await db.query('SELECT * FROM headsets WHERE id = ?', [id]);
 
     if (existing.length === 0) {
@@ -951,18 +880,15 @@ export const deleteHeadset = async (req, res) => {
 
     const headset = existing[0];
 
-    // Check if currently assigned
     if (headset.status === 'assigned') {
       return res.status(400).json(errorResponse('Cannot delete an assigned headset. Return it first.'));
     }
 
-    // Soft delete - mark as retired
     await db.query(
       'UPDATE headsets SET status = ?, updated_at = NOW() WHERE id = ?',
       ['retired', id]
     );
 
-    // Audit log
     await db.query(
       `INSERT INTO audit_logs (user_id, action_type, entity_type, entity_id, old_values, new_values, action_timestamp)
        VALUES (?, 'headset_deleted', 'headsets', ?, ?, ?, NOW())`,
@@ -977,7 +903,6 @@ export const deleteHeadset = async (req, res) => {
     console.log(`✅ Headset retired: ${headset.headset_number} by ${req.user.name}`);
 
     res.json(successResponse({ id: parseInt(id) }, 'Headset retired successfully'));
-
   } catch (error) {
     console.error('❌ Delete headset error:', error);
     res.status(500).json(errorResponse('Failed to delete headset'));
@@ -996,7 +921,6 @@ export const getHeadsetBrands = async (req, res) => {
     );
 
     res.json(successResponse(brands));
-
   } catch (error) {
     console.error('❌ Get brands error:', error);
     res.status(500).json(errorResponse('Failed to fetch headset brands'));
@@ -1004,7 +928,7 @@ export const getHeadsetBrands = async (req, res) => {
 };
 
 // ============================================
-// GET AVAILABLE HEADSETS (For assignment dropdown)
+// GET AVAILABLE HEADSETS
 // ============================================
 export const getAvailableHeadsets = async (req, res) => {
   try {
@@ -1017,9 +941,7 @@ export const getAvailableHeadsets = async (req, res) => {
         h.headset_type,
         h.condition_status,
         h.is_brand_new,
-
         hb.brand_name,
-
         ht.deposit_amount AS tier_deposit_amount,
         ht.refund_amount  AS tier_refund_amount
       FROM headsets h
@@ -1027,9 +949,7 @@ export const getAvailableHeadsets = async (req, res) => {
       JOIN headset_type_tiers ht 
         ON ht.headset_type = h.headset_type AND ht.is_active = 1
       WHERE h.status = 'available'
-	  AND (h.condition_status IS NULL OR h.condition_status NOT IN ('damaged','lost','repair'))
-      -- ✅ Exclude "reserved originals":
-      -- if this headset is the original headset in a permanent assignment that currently has an active temp_replacement child
+      AND (h.condition_status IS NULL OR h.condition_status NOT IN ('damaged','lost','repair'))
       AND h.id NOT IN (
         SELECT orig.headset_id
         FROM headset_assignments orig
@@ -1067,8 +987,6 @@ export const getAvailableHeadsets = async (req, res) => {
           condition: h.condition_status,
           isBrandNew: h.is_brand_new === 1,
           brand: h.brand_name,
-
-          // ✅ tier based
           depositAmount: h.tier_deposit_amount ?? 0,
           refundAmount: h.tier_refund_amount ?? 0,
         }))
@@ -1079,12 +997,12 @@ export const getAvailableHeadsets = async (req, res) => {
     res.status(500).json(errorResponse('Failed to fetch available headsets'));
   }
 };
+
 // ============================================
 // GET HEADSET INVENTORY SUMMARY
 // ============================================
 export const getInventorySummary = async (req, res) => {
   try {
-    // Overall summary
     const [overall] = await db.query(`
       SELECT 
         COUNT(*) as total,
@@ -1098,7 +1016,6 @@ export const getInventorySummary = async (req, res) => {
       FROM headsets
     `);
 
-    // By type
     const [byType] = await db.query(`
       SELECT 
         headset_type,
@@ -1111,7 +1028,6 @@ export const getInventorySummary = async (req, res) => {
       ORDER BY headset_type
     `);
 
-    // By brand
     const [byBrand] = await db.query(`
       SELECT 
         hb.brand_name,
@@ -1140,7 +1056,6 @@ export const getInventorySummary = async (req, res) => {
         assigned: b.assigned
       }))
     }));
-
   } catch (error) {
     console.error('❌ Get inventory summary error:', error);
     res.status(500).json(errorResponse('Failed to fetch inventory summary'));
@@ -1149,11 +1064,16 @@ export const getInventorySummary = async (req, res) => {
 
 export default {
   getAllHeadsets,
+  getHeadsetAssignments,
+  getHeadsetRepairs,
   getHeadsetById,
   addHeadset,
   updateHeadset,
   deleteHeadset,
   getHeadsetBrands,
   getAvailableHeadsets,
-  getInventorySummary
+  getInventorySummary,
+  markHeadsetLost,
+  markHeadsetDamaged,
+  retireHeadset,
 };

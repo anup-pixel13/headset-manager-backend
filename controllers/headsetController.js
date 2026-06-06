@@ -195,17 +195,14 @@ export const getHeadsetAssignments = async (req, res) => {
         ha.return_date,
         ha.return_condition,
         ha.notes,
-
         ha.hold_status,
         ha.hold_reason,
         ha.hold_started_at,
         ha.hold_ended_at,
-
         a.id AS agent_id,
         u.id AS user_id,
         u.name AS agent_name,
         COALESCE(u.employee_id, u.temp_employee_id) AS employee_id,
-
         p.id AS process_id,
         p.name AS process_name
       FROM headset_assignments ha
@@ -218,35 +215,39 @@ export const getHeadsetAssignments = async (req, res) => {
       [headsetId]
     );
 
-	const data = rows.map((r) => ({
-	  lotItemId: r.lot_item_id,
-	  lot: {
-	    id: r.lot_id,
-	    lotCode: r.lot_code,
-	    brandGroup: r.brand_group,
-	    status: r.lot_status,
-	    vendorName: r.vendor_name || null,
-	    notes: r.lot_notes || null,
-	    sentAt: r.lot_sent_at || null,
-	    receivedAt: r.lot_received_at || null,
-	  },
-	  conditionBefore: r.condition_before || null,
-	  conditionAfter: r.condition_after || null,
-	  receiveNotes: r.receive_notes || null,
-	  addedAt: r.added_at || null,
+    const data = rows.map((r) => ({
+      id: r.id,
+      assignmentKind: r.assignment_kind,
+      isActive: Number(r.is_active) === 1,
+      assignmentDate: r.assignment_date,
+      returnDate: r.return_date,
+      returnCondition: r.return_condition,
+      notes: r.notes || null,
+      hold: {
+        status: r.hold_status || null,
+        reason: r.hold_reason || null,
+        startedAt: r.hold_started_at || null,
+        endedAt: r.hold_ended_at || null,
+      },
+      agent: {
+        agentId: r.agent_id,
+        userId: r.user_id,
+        name: r.agent_name,
+        employeeId: r.employee_id || null,
+      },
+      process: r.process_id ? { id: r.process_id, name: r.process_name } : null,
+    }));
 
-	  // keep old names if any other screen uses them
-	  sentAt: r.sent_at || null,
-	  receivedAt: r.received_at || null,
-
-	  // add names expected by headset repair history pages
-	  itemSentAt: r.sent_at || null,
-	  itemReceivedAt: r.received_at || null,
-
-	  receivedBy: r.received_by_user_id
-	    ? { id: r.received_by_user_id, name: r.received_by_name }
-	    : null,
-	}));
+    return res.json(successResponse({
+      source: 'getHeadsetAssignments',
+      headsetId,
+      assignments: data,
+    }));
+  } catch (e) {
+    console.error('❌ getHeadsetAssignments:', e);
+    return res.status(500).json(errorResponse('Failed to fetch headset assignments'));
+  }
+};
 
     return res.json(successResponse({ headsetId, assignments: data }));
   } catch (e) {
@@ -314,7 +315,12 @@ export const getHeadsetRepairs = async (req, res) => {
       receivedBy: r.received_by_user_id ? { id: r.received_by_user_id, name: r.received_by_name } : null,
     }));
 
-    return res.json(successResponse({ headsetId, repairs: data }));
+	return res.json(successResponse({
+	  source: 'getHeadsetRepairs',
+	  headsetId,
+	  repairs: data,
+	}));
+	
   } catch (e) {
     console.error('❌ getHeadsetRepairs:', e);
     return res.status(500).json(errorResponse('Failed to fetch headset repairs'));
